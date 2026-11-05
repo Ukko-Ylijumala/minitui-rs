@@ -14,16 +14,24 @@ and no run loop; each app keeps its own event loop and draws its own views.
 - [`SignalHandler`]: SIGINT / SIGTERM / SIGHUP / SIGQUIT go to the app's
   quit path; a repeat (or no quit path at all) restores the terminal and
   terminates, so a `kill` never leaves the shell in raw mode.
+- [`HelpPopup`]: a help overlay sized to its text (or a key / description
+  table), centered, capped to the screen, scrollable.
+- [`wrap_lines`], [`ellipsize_start`], [`ellipsize_end`]: measuring and
+  fitting text in display columns.
 */
 
+mod popup;
 mod signals;
 mod terminal;
+mod text;
 
+pub use popup::HelpPopup;
 pub use signals::{Signal, SignalBuilder, SignalHandler};
 pub use terminal::{
     GuardBuilder, HeldPanic, PanicPolicy, TerminalGuard, Tui, eprintln_safe, held_panics,
     restore_terminal, take_held_panics, tui_active,
 };
+pub use text::{ellipsize_end, ellipsize_start, wrap_lines};
 
 /**
 `eprintln!` that stays silent while a [`TerminalGuard`] owns the terminal

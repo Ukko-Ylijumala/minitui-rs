@@ -23,6 +23,13 @@ Not a framework: there is no app trait and no run loop. Each app keeps its own e
     - without a callback, the first signal already does that, so a `kill` never leaves the shell in raw mode with the alternate screen up
     - raw mode turns off the terminal's own signal keys: Ctrl-C and Ctrl-\ arrive as key events, so the app's key map still handles them. These signals come from outside: `kill`, systemd, a dropped SSH session (SIGHUP)
     - installed once for the rest of the process: signal-hook can't give a signal back to its default disposition, so the listener is never stopped
+- **HelpPopup**: a help overlay, rendered over the whole frame
+    - pre-formatted help text (`HelpPopup::new`), or a key / description table with styled keys lined up on the widest key (`HelpPopup::from_rows`); an empty key continues the row above
+    - sized to its content plus the block's actual borders, padding and titles, centered, capped to the screen, cells beneath cleared
+    - `title`, `style`, `footer` (notes after a blank line), or a whole custom `block`
+    - scrollable when taller than the screen: `scroll(rows)`, with `overflow(area)` telling how far
+- **wrap_lines**: how many rows a text takes word-wrapped to a width, counted by ratatui's own wrapper (so it can't disagree with the rendering), for sizing popups
+- **ellipsize_start / ellipsize_end**: fit a string into a number of columns with a leading / trailing `…`; display width aware (CJK and emoji take two columns), borrowed when it already fits
 
 ## Installation
 
@@ -86,9 +93,28 @@ A panic report goes to the previously installed hook (std's, by default) unless 
 
 `SignalHandler::install()` installs one with no callback: any of the four signals restores the terminal and terminates, which is the minimum for an app with no quit path to wire in. `.signals([Signal::Terminate, Signal::Hangup])` narrows the set.
 
+The help popup and text fitting, inside `guard.term.draw(|frame| ...)`:
+
+```rust
+use minitui::{HelpPopup, ellipsize_start};
+use ratatui::style::{Color, Style, Stylize};
+
+static HELP_TEXT: &str = "  q    quit\n  h    this help";
+static HELP_ROWS: &[(&str, &str)] = &[("q", "quit"), ("h / F1", "this help")];
+
+// pre-formatted text in the default " keys " box
+frame.render_widget(HelpPopup::new(HELP_TEXT).style(Color::Cyan), frame.area());
+// or a table, with a footer, scrolled (clamped to what doesn't fit)
+let help = HelpPopup::from_rows(HELP_ROWS, Style::new().bold()).footer("press any key".dark_gray());
+frame.render_widget(help.scroll(help_scroll), frame.area());
+
+// a breadcrumb that keeps its most specific end
+let trail = ellipsize_start("tank/data/home/user/projects", area.width as usize);
+```
+
 ## Examples
 
-`guard_demo` checks the guard and the signal handler by hand in a real terminal (`cargo test` has no tty):
+`guard_demo` checks the guard, the signal handler and the help popup by hand in a real terminal (`cargo test` has no tty):
 
 ```sh
 cargo run --example guard_demo            # PanicPolicy::Always
@@ -96,7 +122,7 @@ cargo run --example guard_demo -- held    # PanicPolicy::UiThreadOnly
 cargo run --example guard_demo -- bare    # SignalHandler without a callback
 ```
 
-Keys: `p` panics on the UI thread, `w` on a worker thread, `q` quits. The shell must come back clean after each, with the panic report on it. `kill <pid>` (the pid is shown on screen) quits through the callback, or in `bare` mode restores the terminal and dies by the signal.
+Keys: `p` panics on the UI thread, `w` on a worker thread, `h` toggles the help popup (↑ / ↓ scroll it in a small terminal), `q` quits. The shell must come back clean after each, with the panic report on it. `kill <pid>` (the pid is shown on screen) quits through the callback, or in `bare` mode restores the terminal and dies by the signal.
 
 ## License
 

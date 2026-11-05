@@ -8,7 +8,8 @@ Manual check for [`TerminalGuard`] and [`SignalHandler`] in a real terminal
     cargo run --example guard_demo -- held    # PanicPolicy::UiThreadOnly
     cargo run --example guard_demo -- bare    # signals: no quit callback
 
-Keys: `p` panics on the UI thread, `w` on a worker thread, `q` quits. The
+Keys: `p` panics on the UI thread, `w` on a worker thread, `h` toggles the
+[`HelpPopup`] (↑ / ↓ scroll it when it doesn't fit), `q` quits. The
 shell must come back clean after each, with the panic report on it. In
 `held` mode a worker panic leaves the TUI up and shows the held panic.
 
@@ -25,13 +26,24 @@ use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyboardEnhancementFlags};
 use minitui::{
-    PanicPolicy, SignalHandler, TerminalGuard, eprintln_safe, held_panics, take_held_panics,
-    tui_active,
+    HelpPopup, PanicPolicy, SignalHandler, TerminalGuard, eprintln_safe, held_panics,
+    take_held_panics, tui_active,
 };
+use ratatui::style::{Style, Stylize};
 use ratatui::widgets::{Block, Paragraph};
 
 const TICK: Duration = Duration::from_millis(100);
-static HELP: &str = "p: panic on the UI thread · w: panic on a worker · q: quit";
+static HINT: &str = "h: help · q: quit";
+/// Key, what it does; an empty key continues the row above.
+static HELP_ROWS: &[(&str, &str)] = &[
+    ("p", "panic on the UI thread"),
+    ("w", "panic on a worker thread"),
+    ("", "(held in `held` mode, else the demo quits)"),
+    ("h / F1", "toggle this help"),
+    ("↑ / ↓", "scroll this help, when it doesn't fit"),
+    ("q", "quit"),
+];
+static HELP_FOOTER: &str = "kill <pid> quits through the signal callback";
 /// The quit path: set by `q`, a signal and, through `on_panic`, by any panic.
 static QUIT: AtomicBool = AtomicBool::new(false);
 
@@ -68,9 +80,10 @@ fn main() -> Result<()> {
     let mut guard = builder.build()?;
     eprintln_safe!("this line must not appear: the TUI is up");
 
+    let (mut show_help, mut help_scroll) = (false, 0u16);
     while tui_active() && !QUIT.load(Ordering::Acquire) {
         let held = held_panics();
-        let head = format!("{policy:?} · pid {} · bare: {bare}\n{HELP}", process::id());
+        let head = format!("{policy:?} · pid {} · bare: {bare}\n{HINT}", process::id());
         let text = match held.last() {
             Some(p) => format!("{head}\n\nheld: {}", p.message),
             None => head,
@@ -78,6 +91,13 @@ fn main() -> Result<()> {
         guard.term.draw(|frame| {
             let body = Paragraph::new(text).block(Block::bordered().title(" guard_demo "));
             frame.render_widget(body, frame.area());
+            if show_help {
+                let help = HelpPopup::from_rows(HELP_ROWS, Style::new().bold().cyan())
+                    .footer(HELP_FOOTER.dark_gray());
+                // keep the scroll within what is actually hidden
+                help_scroll = help_scroll.min(help.overflow(frame.area()));
+                frame.render_widget(help.scroll(help_scroll), frame.area());
+            }
         })?;
         if !event::poll(TICK)? {
             continue;
@@ -90,6 +110,9 @@ fn main() -> Result<()> {
         }
         match key.code {
             KeyCode::Char('q') => QUIT.store(true, Ordering::Release),
+            KeyCode::Char('h') | KeyCode::F(1) => show_help = !show_help,
+            KeyCode::Up => help_scroll = help_scroll.saturating_sub(1),
+            KeyCode::Down => help_scroll = help_scroll.saturating_add(1),
             KeyCode::Char('p') => panic!("UI thread panic, as asked"),
             KeyCode::Char('w') => {
                 let _ = thread::Builder::new()

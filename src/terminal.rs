@@ -404,7 +404,13 @@ The tests drive the real process-wide hook and statics, so they run one at
 a time (TEST_LOCK) and only ever set the CLAIMED bit: with no RAW_MODE /
 ALT_SCREEN / KB_FLAGS recorded, a teardown writes nothing to the terminal
 running the tests. Building a real guard needs a tty, which cargo test
-doesn't provide; the `demo` example covers that by hand.
+doesn't provide; the `guard_demo` example covers that by hand.
+
+The hook also sees other tests' panics (a failing assert on a thread of
+their own), so these tests count and inspect only their own, marked with
+TEST_PANIC. A foreign panic landing in a UiThreadOnly window is held and
+dropped by `reset`: a failing test elsewhere may lose its message then, but
+its failure still shows.
 */
 #[cfg(test)]
 mod tests {
@@ -413,6 +419,20 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
 
     static TEST_LOCK: Mutex<()> = Mutex::new(());
+    /// The message of every panic these tests raise on purpose.
+    static TEST_PANIC: &str = "minitui test panic";
+
+    fn is_ours(info: &PanicHookInfo) -> bool {
+        payload_str(info) == Some(TEST_PANIC)
+    }
+
+    /// The held panics these tests raised.
+    fn held_ours() -> Vec<HeldPanic> {
+        held_panics()
+            .into_iter()
+            .filter(|p| p.message == TEST_PANIC)
+            .collect()
+    }
 
     /// Fake a live guard: hook installed, CLAIMED set, `policy` configured.
     fn fake_guard(policy: PanicPolicy, calls: &Arc<AtomicUsize>) -> MutexGuard<'static, ()> {
@@ -424,8 +444,10 @@ mod tests {
         set_config(Some(Arc::new(HookConfig {
             policy,
             ui_thread: thread::current().id(),
-            on_panic: Some(Box::new(move |_| {
-                calls.fetch_add(1, Ordering::Relaxed);
+            on_panic: Some(Box::new(move |info| {
+                if is_ours(info) {
+                    calls.fetch_add(1, Ordering::Relaxed);
+                }
             })),
             prefix: Some("test".into()),
         })));
@@ -441,7 +463,7 @@ mod tests {
     fn panic_on_worker(name: &str) {
         let worker = thread::Builder::new()
             .name(name.into())
-            .spawn(|| panic!("boom"))
+            .spawn(|| panic!("{TEST_PANIC}"))
             .unwrap();
         assert!(worker.join().is_err());
     }
@@ -458,18 +480,17 @@ mod tests {
             1,
             "on_panic runs for every panic"
         );
-        let held = held_panics();
+        let held = held_ours();
         assert_eq!(held.len(), 1);
         assert_eq!(held[0].thread, "worker");
-        assert_eq!(held[0].message, "boom");
         assert!(
             held[0]
                 .location
                 .as_deref()
                 .is_some_and(|l| l.contains("terminal.rs"))
         );
-        assert_eq!(take_held_panics(), held);
-        assert!(held_panics().is_empty());
+        assert!(take_held_panics().iter().any(|p| *p == held[0]));
+        assert!(held_ours().is_empty());
         reset();
     }
 
@@ -477,10 +498,10 @@ mod tests {
     fn ui_thread_panic_restores_under_ui_thread_only() {
         let calls = Arc::new(AtomicUsize::new(0));
         let _serial = fake_guard(PanicPolicy::UiThreadOnly, &calls);
-        assert!(catch_unwind(|| panic!("ui")).is_err());
+        assert!(catch_unwind(|| panic!("{TEST_PANIC}")).is_err());
 
         assert!(!tui_active());
-        assert!(held_panics().is_empty());
+        assert!(held_ours().is_empty());
         assert_eq!(calls.load(Ordering::Relaxed), 1);
         reset();
     }
@@ -492,7 +513,7 @@ mod tests {
         panic_on_worker("worker");
 
         assert!(!tui_active());
-        assert!(held_panics().is_empty());
+        assert!(held_ours().is_empty());
         assert_eq!(calls.load(Ordering::Relaxed), 1);
         reset();
     }
@@ -505,7 +526,7 @@ mod tests {
         panic_on_worker("late");
 
         assert!(
-            held_panics().is_empty(),
+            held_ours().is_empty(),
             "reported, not held: no TUI to hide it from"
         );
         reset();
@@ -519,7 +540,7 @@ mod tests {
         panic_on_worker("bystander");
 
         assert_eq!(calls.load(Ordering::Relaxed), 0);
-        assert!(held_panics().is_empty());
+        assert!(held_ours().is_empty());
     }
 
     #[test]
