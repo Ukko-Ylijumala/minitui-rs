@@ -18,13 +18,21 @@ and no run loop; each app keeps its own event loop and draws its own views.
   table), centered, capped to the screen, scrollable.
 - [`wrap_lines`], [`ellipsize_start`], [`ellipsize_end`]: measuring and
   fitting text in display columns.
+- [`LineEditor`]: a single-line text editor with readline keys, scrolling
+  by display width, optional masking.
+- [`InputDialog`], [`ConfirmDialog`], [`confirm_answer`]: modal prompts
+  around the app's own state.
 */
 
+mod dialog;
+mod editor;
 mod popup;
 mod signals;
 mod terminal;
 mod text;
 
+pub use dialog::{Answer, ConfirmDialog, InputDialog, confirm_answer};
+pub use editor::{EditOutcome, EditorStyle, LineEditor};
 pub use popup::HelpPopup;
 pub use signals::{Signal, SignalBuilder, SignalHandler};
 pub use terminal::{

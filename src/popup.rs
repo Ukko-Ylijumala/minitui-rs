@@ -1,7 +1,9 @@
 // Copyright (c) 2026 Mikko Tanner. All rights reserved.
 
 /*!
-Popups drawn over the UI. [`HelpPopup`] replaces the per-app help overlays:
+Popups drawn over the UI, and what they share: sizing from a block's actual
+chrome, centering, capping to the screen, clearing the cells beneath, the
+default box. [`HelpPopup`] replaces the per-app help overlays:
 the pre-formatted help text of zfs-browser, nft-browser and squawk, and the
 key / description tables of collector-status and edge-xdp-flood. All of
 them sized the box to the text, centered it, capped it to the terminal and
@@ -19,7 +21,7 @@ use unicode_width::UnicodeWidthStr;
 
 /* ===== consts and statics ================================================= */
 
-static DEFAULT_TITLE: &str = " keys ";
+static DEFAULT_TITLE: &str = "keys";
 /// Columns between the key column and the descriptions of a row table.
 const KEY_GAP: usize = 2;
 /// An area big enough to measure any block's chrome against.
@@ -44,10 +46,10 @@ static HELP_TEXT: &str = "  q    quit\n  h    this help";
 static HELP_ROWS: &[(&str, &str)] = &[("q", "quit"), ("h / F1", "this help")];
 
 # fn draw(frame: &mut Frame) {
-// pre-formatted text, in the default " keys " box
+// pre-formatted text, in the default "keys" box
 frame.render_widget(HelpPopup::new(HELP_TEXT).style(Color::Cyan), frame.area());
 // or a key / description table with styled keys
-let help = HelpPopup::from_rows(HELP_ROWS, Style::new().bold()).title(" Keys ");
+let help = HelpPopup::from_rows(HELP_ROWS, Style::new().bold()).title("Keys");
 frame.render_widget(help, frame.area());
 # }
 ```
@@ -104,7 +106,8 @@ impl<'a> HelpPopup<'a> {
         self
     }
 
-    /// The title of the default box (` keys `); ignored with [`HelpPopup::block`].
+    /// The title of the default box (`keys`, shown padded with a space on either
+    /// side like every popup title here); ignored with [`HelpPopup::block`].
     pub fn title(mut self, title: impl Into<Line<'a>>) -> Self {
         self.title = title.into();
         self
@@ -135,10 +138,7 @@ impl<'a> HelpPopup<'a> {
     /// Where the popup lands when rendered into `outer`.
     pub fn area(&self, outer: Rect) -> Rect {
         let (w, h) = self.size();
-        outer.centered(
-            Constraint::Length(w.min(outer.width)),
-            Constraint::Length(h.min(outer.height)),
-        )
+        centered(outer, w, h)
     }
 
     /**
@@ -151,20 +151,18 @@ impl<'a> HelpPopup<'a> {
 
     /// The size the popup wants: content plus chrome, uncapped.
     fn size(&self) -> (u16, u16) {
-        let inner = self.make_block().inner(PROBE);
-        let chrome_w = PROBE.width - inner.width;
-        let chrome_h = PROBE.height - inner.height;
-        let w = u16::try_from(self.text.width()).unwrap_or(u16::MAX);
-        let h = u16::try_from(self.text.height()).unwrap_or(u16::MAX);
-        (w.saturating_add(chrome_w), h.saturating_add(chrome_h))
+        let (chrome_w, chrome_h) = chrome(&self.make_block());
+        (
+            to_u16(self.text.width()).saturating_add(chrome_w),
+            to_u16(self.text.height()).saturating_add(chrome_h),
+        )
     }
 
     fn make_block(&self) -> Block<'a> {
-        let block = self.block.clone().unwrap_or_else(|| {
-            Block::bordered()
-                .title(self.title.clone())
-                .padding(Padding::horizontal(1))
-        });
+        let block = self
+            .block
+            .clone()
+            .unwrap_or_else(|| popup_block(self.title.clone()));
         block.style(self.style)
     }
 }
@@ -180,6 +178,44 @@ impl Widget for HelpPopup<'_> {
             .scroll((scroll, 0))
             .render(popup, buf);
     }
+}
+
+/* ===== shared by the popups =============================================== */
+
+/// The default popup box: bordered, `title` padded with a space on either side,
+/// one column of padding inside.
+pub(crate) fn popup_block<'a>(title: impl Into<Line<'a>>) -> Block<'a> {
+    Block::bordered()
+        .title(padded(title.into()))
+        .padding(Padding::horizontal(1))
+}
+
+/// Columns and rows `block` takes around its content: borders, padding, titles.
+pub(crate) fn chrome(block: &Block) -> (u16, u16) {
+    let inner = block.inner(PROBE);
+    (PROBE.width - inner.width, PROBE.height - inner.height)
+}
+
+/// A `w` × `h` area centered in `outer`, capped to it.
+pub(crate) fn centered(outer: Rect, w: u16, h: u16) -> Rect {
+    outer.centered(
+        Constraint::Length(w.min(outer.width)),
+        Constraint::Length(h.min(outer.height)),
+    )
+}
+
+/// A measured size (`usize`) as a `u16` dimension, saturating.
+pub(crate) fn to_u16(n: usize) -> u16 {
+    u16::try_from(n).unwrap_or(u16::MAX)
+}
+
+/// ` title `: a title off the border corner and line; an empty one stays empty.
+fn padded(mut title: Line<'_>) -> Line<'_> {
+    if title.width() > 0 {
+        title.spans.insert(0, Span::raw(" "));
+        title.spans.push(Span::raw(" "));
+    }
+    title
 }
 
 /* ===== tests ============================================================== */

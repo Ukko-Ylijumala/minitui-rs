@@ -30,6 +30,17 @@ Not a framework: there is no app trait and no run loop. Each app keeps its own e
     - scrollable when taller than the screen: `scroll(rows)`, with `overflow(area)` telling how far
 - **wrap_lines**: how many rows a text takes word-wrapped to a width, counted by ratatui's own wrapper (so it can't disagree with the rendering), for sizing popups
 - **ellipsize_start / ellipsize_end**: fit a string into a number of columns with a leading / trailing `…`; display width aware (CJK and emoji take two columns), borrowed when it already fits
+- **LineEditor**: a single-line text editor for prompts
+    - ← → Home End, Ctrl-← / Ctrl-→ by word, Backspace / Delete; readline Ctrl-A / E / U / K / W
+    - other Ctrl / Alt chords are ignored, never typed as their bare letter; Ctrl+Alt (AltGr on some layouts) is text
+    - `handle_key` returns `Changed` / `Handled` / `Ignored`: Enter, Esc, Tab, Ctrl-C are left to the prompt
+    - renders as one line that scrolls sideways by display columns to keep the cursor in view; `secret(true)` masks the text with `•`; `insert` takes a bracketed paste
+    - `cursor_column` for apps that show the terminal's own cursor instead of the highlighted cell
+- **InputDialog / ConfirmDialog**: modal prompts over the app's own state (what the text or the `y` means stays with the app)
+    - input: title, prompt (any number of lines), the editor, an optional `[x]` checkbox, and the validation error in place of the key hint
+    - confirm: title, message, the equivalent command in yellow, `y confirm · n / Esc cancel`; `confirm_answer(key)` maps the keys (no Enter-to-confirm, no held-down repeat)
+    - sized to their text with a minimum width (64 / 40, without `clamp`, which panics on a narrower terminal), centered, capped to the screen, and tall enough that every wrapped line shows
+- Popup titles are given bare (`"keys"`, `"destroy"`) and shown padded with a space on either side
 
 ## Installation
 
@@ -41,7 +52,7 @@ git = "https://github.com/Ukko-Ylijumala/minitui-rs"
 version = "0.1"
 ```
 
-Releases are tagged `vX.Y.Z`; use `tag = "v0.1.1"` instead of `version` to pin one exactly.
+Releases are tagged `vX.Y.Z`; use `tag = "v0.1.2"` instead of `version` to pin one exactly.
 
 minitui's API uses ratatui and crossterm types (`Terminal`, `KeyboardEnhancementFlags`), so the app must depend on the same versions: ratatui 0.30 and crossterm 0.29.
 
@@ -102,7 +113,7 @@ use ratatui::style::{Color, Style, Stylize};
 static HELP_TEXT: &str = "  q    quit\n  h    this help";
 static HELP_ROWS: &[(&str, &str)] = &[("q", "quit"), ("h / F1", "this help")];
 
-// pre-formatted text in the default " keys " box
+// pre-formatted text in the default "keys" box
 frame.render_widget(HelpPopup::new(HELP_TEXT).style(Color::Cyan), frame.area());
 // or a table, with a footer, scrolled (clamped to what doesn't fit)
 let help = HelpPopup::from_rows(HELP_ROWS, Style::new().bold()).footer("press any key".dark_gray());
@@ -112,9 +123,41 @@ frame.render_widget(help.scroll(help_scroll), frame.area());
 let trail = ellipsize_start("tank/data/home/user/projects", area.width as usize);
 ```
 
+A prompt: the app keeps the editor (and what the text is for), the dialog only draws it:
+
+```rust
+use minitui::{Answer, ConfirmDialog, EditOutcome, InputDialog, LineEditor, confirm_answer};
+
+// drawing
+let dialog = InputDialog::new("rename", "new name for tank/data:", &editor).error(error.as_deref());
+frame.render_widget(dialog, frame.area());
+
+// a key
+match editor.handle_key(key) {
+    EditOutcome::Changed => error = None,
+    EditOutcome::Handled => {}
+    EditOutcome::Ignored => match key.code {
+        KeyCode::Enter => match validate(editor.text()) {
+            Ok(action) => /* open a ConfirmDialog for it, or run it */,
+            Err(e) => error = Some(e),
+        },
+        KeyCode::Esc => /* close */,
+        _ => {}
+    },
+}
+
+// the confirmation
+frame.render_widget(ConfirmDialog::new("destroy", "Destroy 'tank/data'?").command("zfs destroy tank/data"), frame.area());
+match confirm_answer(key) {
+    Some(Answer::Yes) => /* run it */,
+    Some(Answer::No) => /* close */,
+    None => {}
+}
+```
+
 ## Examples
 
-`guard_demo` checks the guard, the signal handler and the help popup by hand in a real terminal (`cargo test` has no tty):
+`guard_demo` checks the guard, the signal handler, the help popup and the dialogs by hand in a real terminal (`cargo test` has no tty):
 
 ```sh
 cargo run --example guard_demo            # PanicPolicy::Always
@@ -122,7 +165,7 @@ cargo run --example guard_demo -- held    # PanicPolicy::UiThreadOnly
 cargo run --example guard_demo -- bare    # SignalHandler without a callback
 ```
 
-Keys: `p` panics on the UI thread, `w` on a worker thread, `h` toggles the help popup (↑ / ↓ scroll it in a small terminal), `q` quits. The shell must come back clean after each, with the panic report on it. `kill <pid>` (the pid is shown on screen) quits through the callback, or in `bare` mode restores the terminal and dies by the signal.
+Keys: `p` panics on the UI thread, `w` on a worker thread, `h` toggles the help popup (↑ / ↓ scroll it in a small terminal), `i` opens an input dialog (Tab masks the text, Enter asks for confirmation), `q` quits. The shell must come back clean after each, with the panic report on it. `kill <pid>` (the pid is shown on screen) quits through the callback, or in `bare` mode restores the terminal and dies by the signal.
 
 ## License
 
@@ -136,6 +179,10 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## Version History
 
+- 0.1.2: Popups and prompts
+    - `HelpPopup`, from the help overlays in zfs-browser, nft-browser, squawk, collector-status and edge-xdp-flood
+    - `LineEditor`, `InputDialog`, `ConfirmDialog` and `confirm_answer`, from zfs-browser's and nft-browser's modals
+    - `wrap_lines`, `ellipsize_start` and `ellipsize_end`, measuring in display columns
 - 0.1.1: Signal handling
     - `SignalHandler` for termination signals, from mping-rs's signal-hook listener and edge-xdp-flood's SIGHUP handling
 - 0.1.0: Initial library version
