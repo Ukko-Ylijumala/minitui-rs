@@ -9,12 +9,17 @@ and no run loop; each app keeps its own event loop and draws its own views.
   protocol) for the guard's lifetime, restored on drop, on a failed setup
   and from a panic hook ([`PanicPolicy`] picks which threads' panics may
   tear the terminal down; the others are held, see [`held_panics`]).
-- [`tui_active`], [`eprintln_safe`] / [`eprintln_safe!`]: keep stray stderr
+- [`tui_active`], [`eprintln_safe()`] / [`eprintln_safe!`]: keep stray stderr
   output (and log echoes) off the TUI while it is up.
+- [`SignalHandler`]: SIGINT / SIGTERM / SIGHUP / SIGQUIT go to the app's
+  quit path; a repeat (or no quit path at all) restores the terminal and
+  terminates, so a `kill` never leaves the shell in raw mode.
 */
 
+mod signals;
 mod terminal;
 
+pub use signals::{Signal, SignalBuilder, SignalHandler};
 pub use terminal::{
     GuardBuilder, HeldPanic, PanicPolicy, TerminalGuard, Tui, eprintln_safe, held_panics,
     restore_terminal, take_held_panics, tui_active,
