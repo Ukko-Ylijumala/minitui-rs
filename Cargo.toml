@@ -10,8 +10,11 @@ categories = ["command-line-programming"]
 keywords = ["tui", "ratatui"]
 publish = false
 edition = "2024"
+# ratatui 0.30 requires 1.88
+rust-version = "1.88"
 
 [dependencies]
 signal-hook = "0.3"
 crossterm = "0.29"
-ratatui = "0.30"
+# lean: only the crossterm backend, pinned to the same crossterm as above
+ratatui = { version = "0.30", default-features = false, features = ["crossterm_0_29"] }

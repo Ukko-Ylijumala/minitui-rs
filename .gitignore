@@ -1,6 +1,7 @@
 # Rust section
 target/
 .cargo
+Cargo.lock
 
 # Profiling etc:
 *.log
