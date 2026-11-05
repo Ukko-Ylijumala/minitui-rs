@@ -1,0 +1,17 @@
+# Rust section
+target/
+.cargo
+
+# Profiling etc:
+*.log
+perf.data*
+heaptrack.*
+
+# misc development files:
+/tmp
+/dist
+*.bak
+*.old
+
+# Local LLM stuff
+.claude
