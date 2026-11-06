@@ -71,7 +71,7 @@ git = "https://github.com/Ukko-Ylijumala/minitui-rs"
 version = "0.1"
 ```
 
-Releases are tagged `vX.Y.Z`; use `tag = "v0.1.2"` instead of `version` to pin one exactly.
+Releases are tagged `vX.Y.Z`; use `tag = "v0.1.3"` instead of `version` to pin one exactly.
 
 minitui's API uses ratatui and crossterm types (`Terminal`, `KeyboardEnhancementFlags`), so the app must depend on the same versions: ratatui 0.30 and crossterm 0.29.
 
@@ -198,6 +198,11 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## Version History
 
+- 0.1.3: Forms, lists and scrolling views
+    - `ListCursor`, merged from the list and table selection in zfs-browser, mping-rs, squawk, nft-browser and wiremeup
+    - `Form` with text, checkbox and choice `Field`s, from wiremeup's form, mping-rs's add-target dialog and edge-xdp-flood's config dialog
+    - `LineEditor` covers what those had from tui-input: grapheme-wise editing, the kill buffer (Ctrl-Y), the Alt word keys; plus `idle_line`, `take` and `clear`
+    - `Scroll`, `TextView` and `CanvasView`, from the detail panes of squawk, zfs-browser and nft-browser, squawk's off-screen host view, wiremeup's preview and mping-rs's log popup; `HelpPopup` scrolls through a `Scroll`; `range_label`
 - 0.1.2: Popups and prompts
     - `HelpPopup`, from the help overlays in zfs-browser, nft-browser, squawk, collector-status and edge-xdp-flood
     - `LineEditor`, `InputDialog`, `ConfirmDialog` and `confirm_answer`, from zfs-browser's and nft-browser's modals
