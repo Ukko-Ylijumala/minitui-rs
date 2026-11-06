@@ -9,12 +9,12 @@ real terminal (cargo test has no tty).
     cargo run --example guard_demo -- bare    # signals: no quit callback
 
 Keys: `p` panics on the UI thread, `w` on a worker thread, `h` toggles the
-[`HelpPopup`] (↑ / ↓ scroll it when it doesn't fit; otherwise they, Home,
-End, PgUp and PgDn move in the [`ListCursor`] list), `i` opens an
+[`HelpPopup`] (↑ ↓ Home End PgUp PgDn scroll it when it doesn't fit;
+otherwise they move in the [`ListCursor`] list), `i` opens an
 [`InputDialog`] (Tab masks the text, Enter asks a [`ConfirmDialog`]), `f`
-a [`Form`], `q` quits. The shell must come back clean after each, with the
-panic report on it. In `held` mode a worker panic leaves the TUI up and
-shows the held panic.
+a [`Form`], `v` a wrapped [`TextView`], `q` quits. The shell must come
+back clean after each, with the panic report on it. In `held` mode a
+worker panic leaves the TUI up and shows the held panic.
 
 Signals: `kill <pid>` (shown on screen) quits through the callback; in
 `bare` mode it restores the terminal and kills the demo by the signal.
@@ -33,16 +33,16 @@ use crossterm::event::{
 };
 use minitui::{
     Answer, ConfirmDialog, EditOutcome, Field, Form, FormAction, HelpPopup, InputDialog,
-    LineEditor, ListCursor, PanicPolicy, SignalHandler, TerminalGuard, confirm_answer,
-    eprintln_safe, held_panics, take_held_panics, tui_active,
+    LineEditor, ListCursor, PanicPolicy, Scroll, SignalHandler, TerminalGuard, TextView,
+    confirm_answer, eprintln_safe, held_panics, range_label, take_held_panics, tui_active,
 };
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Style, Stylize};
-use ratatui::widgets::{Block, List, ListItem, ListState, Paragraph};
+use ratatui::widgets::{Block, Clear, List, ListItem, ListState, Paragraph};
 
 const TICK: Duration = Duration::from_millis(100);
-static HINT: &str = "h: help · i: input · f: form · q: quit";
+static HINT: &str = "h: help · i: input · f: form · v: view · q: quit";
 /// Key, what it does; an empty key continues the row above.
 static HELP_ROWS: &[(&str, &str)] = &[
     ("p", "panic on the UI thread"),
@@ -53,9 +53,10 @@ static HELP_ROWS: &[(&str, &str)] = &[
         "an input dialog: Tab masks the text, Enter confirms it",
     ),
     ("f", "a form: Enter submits it, an empty name is refused"),
+    ("v", "a text viewer: wrapped, scrolled by row; Esc closes"),
     ("h / F1", "toggle this help"),
-    ("↑ / ↓", "scroll this help, when it doesn't fit;"),
-    ("", "else move in the list (Home End PgUp PgDn too)"),
+    ("↑ ↓ Home End", "scroll this help, when it doesn't fit;"),
+    ("PgUp PgDn", "else move in the list"),
     ("q", "quit"),
 ];
 static HELP_FOOTER: &str = "kill <pid> quits through the signal callback";
@@ -74,6 +75,12 @@ const LIST_LEN: usize = 200;
 const LIST_SEPARATOR_EVERY: usize = 10;
 /// Rows of the text above the list, borders included.
 const HEAD_ROWS: u16 = 8;
+/// The viewer's text: numbered paragraphs, each long enough to wrap.
+const VIEW_PARAGRAPHS: usize = 40;
+static VIEW_FILLER: &str = "a paragraph long enough to wrap in most terminals, so that the \
+    viewer scrolls by wrapped rows rather than by lines of the text.";
+/// The viewer's share of the screen, both ways.
+const VIEW_PERCENT: u16 = 80;
 /// The quit path: set by `q`, a signal and, through `on_panic`, by any panic.
 static QUIT: AtomicBool = AtomicBool::new(false);
 
@@ -89,6 +96,7 @@ enum Modal {
         text: String,
     },
     Form(Form),
+    View(Scroll),
 }
 
 fn main() -> Result<()> {
@@ -124,7 +132,7 @@ fn main() -> Result<()> {
     let mut guard = builder.build()?;
     eprintln_safe!("this line must not appear: the TUI is up");
 
-    let (mut show_help, mut help_scroll) = (false, 0u16);
+    let (mut show_help, mut help_scroll) = (false, Scroll::new());
     let mut cursor = ListCursor::new();
     let mut modal = Modal::None;
     let mut accepted: Option<String> = None;
@@ -148,11 +156,9 @@ fn main() -> Result<()> {
             if show_help {
                 let help = HelpPopup::from_rows(HELP_ROWS, Style::new().bold().cyan())
                     .footer(HELP_FOOTER.dark_gray());
-                // keep the scroll within what is actually hidden
-                help_scroll = help_scroll.min(help.overflow(frame.area()));
-                frame.render_widget(help.scroll(help_scroll), frame.area());
+                frame.render_stateful_widget(help, frame.area(), &mut help_scroll);
             }
-            draw_modal(frame, &modal);
+            draw_modal(frame, &mut modal);
         })?;
         if !event::poll(TICK)? {
             continue;
@@ -167,7 +173,7 @@ fn main() -> Result<()> {
                         }
                     }
                     Modal::Form(form) => _ = form.insert(&s),
-                    Modal::None | Modal::Confirm { .. } => {}
+                    Modal::None | Modal::Confirm { .. } | Modal::View(_) => {}
                 }
                 continue;
             }
@@ -193,9 +199,8 @@ fn main() -> Result<()> {
                 };
             }
             KeyCode::Char('f') => modal = Modal::Form(demo_form()),
+            KeyCode::Char('v') => modal = Modal::View(Scroll::new()),
             KeyCode::Char('h') | KeyCode::F(1) => show_help = !show_help,
-            KeyCode::Up if show_help => help_scroll = help_scroll.saturating_sub(1),
-            KeyCode::Down if show_help => help_scroll = help_scroll.saturating_add(1),
             KeyCode::Char('p') => panic!("UI thread panic, as asked"),
             KeyCode::Char('w') => {
                 let _ = thread::Builder::new()
@@ -203,11 +208,9 @@ fn main() -> Result<()> {
                     .spawn(|| panic!("worker panic, as asked"))?
                     .join();
             }
-            // the list's keys, while the help isn't up to take them
-            _ if !show_help => {
-                let _ = cursor.nav(LIST_LEN).selectable(|i| !is_separator(i)).key(key);
-            }
-            _ => {}
+            // the help takes the scroll keys while it is up, else the list
+            _ if show_help => _ = help_scroll.key(key),
+            _ => _ = cursor.nav(LIST_LEN).selectable(|i| !is_separator(i)).key(key),
         }
     }
     drop(guard);
@@ -218,7 +221,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn draw_modal(frame: &mut Frame, modal: &Modal) {
+fn draw_modal(frame: &mut Frame, modal: &mut Modal) {
     match modal {
         Modal::None => {}
         Modal::Input {
@@ -236,7 +239,21 @@ fn draw_modal(frame: &mut Frame, modal: &Modal) {
                 .command(format!("echo {text}"));
             frame.render_widget(dialog, frame.area());
         }
-        Modal::Form(form) => frame.render_widget(form, frame.area()),
+        Modal::Form(form) => frame.render_widget(&*form, frame.area()),
+        Modal::View(scroll) => {
+            let share = Constraint::Percentage(VIEW_PERCENT);
+            let area = frame.area().centered(share, share);
+            let text = (1..=VIEW_PARAGRAPHS)
+                .map(|i| format!("{i}. {VIEW_FILLER}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let view = TextView::new(text)
+                .wrap(true)
+                .indicator("rows")
+                .block(Block::bordered().title(" TextView "));
+            frame.render_widget(Clear, area);
+            frame.render_stateful_widget(view, area, scroll);
+        }
     }
 }
 
@@ -244,7 +261,7 @@ fn draw_modal(frame: &mut Frame, modal: &Modal) {
 fn draw_list(frame: &mut Frame, area: Rect, cursor: &mut ListCursor) {
     let block = Block::bordered().title(" ListCursor ");
     let window = cursor.window(LIST_LEN, block.inner(area).height.into());
-    let title = format!(" rows {}–{} of {LIST_LEN} ", window.start + 1, window.end);
+    let title = format!(" {} ", range_label("rows", window.clone(), LIST_LEN));
     let items: Vec<ListItem> = window
         .map(|i| match is_separator(i) {
             true => ListItem::new(format!("── {i} ──")).dark_gray(),
@@ -348,5 +365,14 @@ fn modal_key(modal: &mut Modal, key: KeyEvent) -> Option<String> {
                 None
             }
         },
+        Modal::View(scroll) => {
+            let close = key.kind == KeyEventKind::Press
+                && matches!(key.code, KeyCode::Esc | KeyCode::Char('v' | 'q'));
+            match close {
+                true => *modal = Modal::None,
+                false => _ = scroll.key(key),
+            }
+            None
+        }
     }
 }

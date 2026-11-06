@@ -227,10 +227,9 @@ impl ListCursor {
             .with_selected(self.selected)
     }
 
-    /// One PgUp / PgDn: a page less a row, so the edge row stays in sight.
+    /// One PgUp / PgDn, signed for [`Nav::by`].
     fn page_step(&self) -> isize {
-        let page = self.page().unwrap_or(FALLBACK_PAGE);
-        isize::try_from(page.saturating_sub(1).max(1)).unwrap_or(isize::MAX)
+        isize::try_from(page_step(self.page())).unwrap_or(isize::MAX)
     }
 }
 
@@ -354,6 +353,15 @@ impl<'a, F: Fn(usize) -> bool> Nav<'a, F> {
 }
 
 /* ===== helpers ============================================================ */
+
+/**
+One PgUp / PgDn for a `page` of rows (`None` before the first draw): a page
+less a row, so the row at the edge stays in sight. Shared with
+[`crate::Scroll`].
+*/
+pub(crate) fn page_step(page: Option<usize>) -> usize {
+    page.unwrap_or(FALLBACK_PAGE).saturating_sub(1).max(1)
+}
 
 fn any_row(_: usize) -> bool {
     true

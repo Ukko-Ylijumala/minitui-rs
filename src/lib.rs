@@ -16,8 +16,8 @@ and no run loop; each app keeps its own event loop and draws its own views.
   terminates, so a `kill` never leaves the shell in raw mode.
 - [`HelpPopup`]: a help overlay sized to its text (or a key / description
   table), centered, capped to the screen, scrollable.
-- [`wrap_lines`], [`ellipsize_start`], [`ellipsize_end`]: measuring and
-  fitting text in display columns.
+- [`wrap_lines`], [`ellipsize_start`], [`ellipsize_end`], [`range_label`]:
+  measuring and fitting text in display columns.
 - [`LineEditor`]: a single-line text editor with readline keys, scrolling
   by display width, optional masking.
 - [`InputDialog`], [`ConfirmDialog`], [`confirm_answer`]: modal prompts
@@ -26,6 +26,9 @@ and no run loop; each app keeps its own event loop and draws its own views.
   across frames; keys, paging by the last draw, the visible window.
 - [`Form`]: a modal form of text, checkbox and choice [`Field`]s, with
   focus, optional buttons, a note and the validation error.
+- [`Scroll`], [`TextView`], [`CanvasView`]: a view taller than its area,
+  scrolled by line with the last page kept full: text, or a whole layout
+  drawn on an off-screen buffer.
 */
 
 mod dialog;
@@ -33,6 +36,7 @@ mod editor;
 mod form;
 mod list;
 mod popup;
+mod scroll;
 mod signals;
 mod terminal;
 mod text;
@@ -42,12 +46,13 @@ pub use editor::{EditOutcome, EditorStyle, LineEditor};
 pub use form::{Field, Focus, Form, FormAction};
 pub use list::{ListCursor, Nav, NavOutcome};
 pub use popup::HelpPopup;
+pub use scroll::{CanvasView, Scroll, TextView};
 pub use signals::{Signal, SignalBuilder, SignalHandler};
 pub use terminal::{
     GuardBuilder, HeldPanic, PanicPolicy, TerminalGuard, Tui, eprintln_safe, held_panics,
     restore_terminal, take_held_panics, tui_active,
 };
-pub use text::{ellipsize_end, ellipsize_start, wrap_lines};
+pub use text::{ellipsize_end, ellipsize_start, range_label, wrap_lines};
 
 /**
 `eprintln!` that stays silent while a [`TerminalGuard`] owns the terminal

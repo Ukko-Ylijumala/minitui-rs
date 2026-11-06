@@ -27,8 +27,9 @@ Not a framework: there is no app trait and no run loop. Each app keeps its own e
     - pre-formatted help text (`HelpPopup::new`), or a key / description table with styled keys lined up on the widest key (`HelpPopup::from_rows`); an empty key continues the row above
     - sized to its content plus the block's actual borders, padding and titles, centered, capped to the screen, cells beneath cleared
     - `title`, `style`, `footer` (notes after a blank line), or a whole custom `block`
-    - scrollable when taller than the screen: `scroll(rows)`, with `overflow(area)` telling how far
+    - scrollable when taller than the screen: rendered through a `Scroll` that the keys move, with `lines a–b of N` in the bottom border; or a bare `scroll(rows)`, with `overflow(area)` telling how far
 - **wrap_lines**: how many rows a text takes word-wrapped to a width, counted by ratatui's own wrapper (so it can't disagree with the rendering), for sizing popups
+- **range_label**: `rows 21–40 of 300` for a title
 - **ellipsize_start / ellipsize_end**: fit a string into a number of columns with a leading / trailing `…`; display width aware (CJK and emoji take two columns), borrowed when it already fits
 - **LineEditor**: a single-line text editor for prompts
     - ← → Home End, Ctrl-← / Ctrl-→ (or Alt-) by word, Backspace / Delete, Ctrl-Backspace / Ctrl-Delete a word
@@ -53,6 +54,11 @@ Not a framework: there is no app trait and no run loop. Each app keeps its own e
     - `nav(len).key(key)`: ↑ ↓ Home End, PgUp / PgDn by the rows of the last draw less one; modifier chords are left to the app; `Moved` / `Handled` / `Ignored`
     - `nav(len).wrap()` wraps single steps around; `nav(len).selectable(|i| ..)` skips separators and headings
     - `clamp(len)` after a delete; `reselect(found, len)` keeps the selection on its item across a refresh or a re-sort, and says when the item is gone
+- **Scroll**: the offset of a view taller than its area, kept across frames
+    - `window(len, rows)` before rendering: clamps the offset so the last page is full, returns the lines to show; `label(what)` for the title when it overflows
+    - `key(key)`: ↑ ↓ Home End, PgUp / PgDn by the rows of the last draw less one, never past the end (so ↑ moves at once); `key_with(key, KeyModifiers::SHIFT)` for a detail pane beside a list
+- **TextView**: text in a `Scroll`ed view, optionally word-wrapped (scrolling by wrapped rows); only the lines in view are handed to the renderer; `lines a–b of N` in the bottom border when it overflows
+- **CanvasView**: a whole layout drawn on an off-screen buffer as tall as it needs, the rows in view copied into the frame, so panels of charts and tables scroll by line however small the terminal
 - Popup titles are given bare (`"keys"`, `"destroy"`) and shown padded with a space on either side
 
 ## Installation
@@ -128,9 +134,9 @@ static HELP_ROWS: &[(&str, &str)] = &[("q", "quit"), ("h / F1", "this help")];
 
 // pre-formatted text in the default "keys" box
 frame.render_widget(HelpPopup::new(HELP_TEXT).style(Color::Cyan), frame.area());
-// or a table, with a footer, scrolled (clamped to what doesn't fit)
+// or a table, with a footer, scrolled by a Scroll (help_scroll.key(key) in the key handler)
 let help = HelpPopup::from_rows(HELP_ROWS, Style::new().bold()).footer("press any key".dark_gray());
-frame.render_widget(help.scroll(help_scroll), frame.area());
+frame.render_stateful_widget(help, frame.area(), &mut help_scroll);
 
 // a breadcrumb that keeps its most specific end
 let trail = ellipsize_start("tank/data/home/user/projects", area.width as usize);

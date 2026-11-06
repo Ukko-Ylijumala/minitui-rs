@@ -7,6 +7,7 @@ an emoji takes two cells, a combining mark none. The per-app copies counted
 */
 
 use std::borrow::Cow;
+use std::ops::Range;
 
 use ratatui::text::Text;
 use ratatui::widgets::{Paragraph, Wrap};
@@ -35,6 +36,14 @@ pub fn wrap_lines<'a>(text: impl Into<Text<'a>>, width: u16) -> u16 {
         .wrap(Wrap { trim: false })
         .line_count(width.max(1));
     u16::try_from(count).unwrap_or(u16::MAX)
+}
+
+/**
+`{what} a–b of N` for the `shown` part of `len` items, counted from 1: a
+list's or a view's position for its title (`rows 21–40 of 300`).
+*/
+pub fn range_label(what: &str, shown: Range<usize>, len: usize) -> String {
+    format!("{what} {}–{} of {len}", shown.start + 1, shown.end)
 }
 
 /**

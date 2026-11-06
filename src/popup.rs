@@ -16,8 +16,11 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Clear, Padding, Paragraph, Widget};
+use ratatui::widgets::{Block, Clear, Padding, Paragraph, StatefulWidget, Widget};
 use unicode_width::UnicodeWidthStr;
+
+use crate::scroll::indicator_width;
+use crate::{Scroll, TextView};
 
 /* ===== consts and statics ================================================= */
 
@@ -34,8 +37,9 @@ A help overlay, centered over the area it is rendered into (normally the
 whole frame) and sized to its content: the widest line plus the block's
 chrome, all lines plus the block's chrome, capped to the area. The cells
 beneath are cleared. Lines are not wrapped (help text is laid out in
-columns); a text taller than the area can be scrolled, see
-[`HelpPopup::overflow`].
+columns); a text taller than the area scrolls: render it through a
+[`Scroll`] (as a `StatefulWidget`) that the keys move, or give the offset
+with [`HelpPopup::scroll`].
 
 ```no_run
 # use ratatui::Frame;
@@ -129,7 +133,8 @@ impl<'a> HelpPopup<'a> {
         self
     }
 
-    /// Start the text `rows` down; capped to [`HelpPopup::overflow`].
+    /// Start the text `rows` down; capped to [`HelpPopup::overflow`]. Not
+    /// used when rendered through a [`Scroll`].
     pub fn scroll(mut self, rows: u16) -> Self {
         self.scroll = rows;
         self
@@ -177,6 +182,27 @@ impl Widget for HelpPopup<'_> {
             .block(block)
             .scroll((scroll, 0))
             .render(popup, buf);
+    }
+}
+
+/**
+Rendered through a [`Scroll`]: [`Scroll::key`] scrolls it, clamped so that
+↑ moves at once after an overshoot, and when the text doesn't fit the
+bottom border says which lines are in view (the popup widens for it, if
+the text is narrower).
+*/
+impl StatefulWidget for HelpPopup<'_> {
+    type State = Scroll;
+
+    fn render(self, area: Rect, buf: &mut Buffer, scroll: &mut Scroll) {
+        let mut popup = self.area(area);
+        if self.overflow(area) > 0 {
+            let w = to_u16(indicator_width(self.text.height())).max(popup.width);
+            popup = centered(area, w, popup.height);
+        }
+        let block = self.make_block();
+        Clear.render(popup, buf);
+        TextView::new(self.text).block(block).render(popup, buf, scroll);
     }
 }
 
@@ -231,7 +257,7 @@ mod tests {
     fn render(popup: HelpPopup, w: u16, h: u16) -> Vec<String> {
         let area = Rect::new(0, 0, w, h);
         let mut buf = Buffer::filled(area, Cell::new("x"));
-        popup.render(area, &mut buf);
+        Widget::render(popup, area, &mut buf);
         (0..h)
             .map(|y| (0..w).map(|x| buf[(x, y)].symbol().to_string()).collect())
             .collect()
@@ -318,6 +344,23 @@ mod tests {
         // scrolling past the end stops at the last full page
         let rows = render(HelpPopup::new(text).scroll(99), 30, 10);
         assert!(rows[8].contains("line 20"));
+    }
+
+    #[test]
+    fn scrolled_through_a_scroll() {
+        let text = (1..=20)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let area = Rect::new(0, 0, 30, 10);
+        let mut buf = Buffer::empty(area);
+        let mut scroll = Scroll::new();
+        scroll.set_offset(99);
+        StatefulWidget::render(HelpPopup::new(text), area, &mut buf, &mut scroll);
+        assert_eq!(scroll.offset(), 12, "the last full page");
+        let row = |y| (0..30).map(|x| buf[(x, y)].symbol()).collect::<String>();
+        assert!(row(8).contains("line 20"));
+        assert!(row(9).contains(" lines 13–20 of 20 "), "{}", row(9));
     }
 
     #[test]
