@@ -12,9 +12,12 @@ Keys: `p` panics on the UI thread, `w` on a worker thread, `h` toggles the
 [`HelpPopup`] (↑ ↓ Home End PgUp PgDn scroll it when it doesn't fit;
 otherwise they move in the [`ListCursor`] list), `i` opens an
 [`InputDialog`] (Tab masks the text, Enter asks a [`ConfirmDialog`]), `f`
-a [`Form`], `v` a wrapped [`TextView`], `q` quits. The shell must come
-back clean after each, with the panic report on it. In `held` mode a
-worker panic leaves the TUI up and shows the held panic.
+a [`Form`], `v` a wrapped [`TextView`], `q` quits; Shift with ↑ ↓ Home
+End PgUp PgDn scrolls the [`LogView`] beside the list, which a ticker
+thread feeds. The shell must come back clean after each, with the panic
+report on it. In `held` mode a worker panic leaves the TUI up and shows
+the held panic. The log's first and last lines echo on the shell, before
+the TUI comes up and after it is gone.
 
 Signals: `kill <pid>` (shown on screen) quits through the callback; in
 `bare` mode it restores the terminal and kills the demo by the signal.
@@ -24,6 +27,7 @@ use std::env;
 use std::io::Result;
 use std::mem;
 use std::process;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
@@ -32,9 +36,10 @@ use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags,
 };
 use minitui::{
-    Answer, ConfirmDialog, EditOutcome, Field, Form, FormAction, HelpPopup, InputDialog,
-    LineEditor, ListCursor, PanicPolicy, Scroll, SignalHandler, TerminalGuard, TextView,
-    confirm_answer, eprintln_safe, held_panics, range_label, take_held_panics, tui_active,
+    Answer, ConfirmDialog, Echo, EditOutcome, Field, Form, FormAction, HelpPopup, InputDialog,
+    LineEditor, ListCursor, LogBuffer, LogLevel, LogScroll, LogView, NavOutcome, PanicPolicy,
+    Scroll, SignalHandler, Stamp, TerminalGuard, TextView, confirm_answer, eprintln_safe,
+    held_panics, range_label, take_held_panics, tui_active,
 };
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -57,6 +62,7 @@ static HELP_ROWS: &[(&str, &str)] = &[
     ("h / F1", "toggle this help"),
     ("↑ ↓ Home End", "scroll this help, when it doesn't fit;"),
     ("PgUp PgDn", "else move in the list"),
+    ("⇧ + those", "scroll the log; ⇧End follows it again"),
     ("q", "quit"),
 ];
 static HELP_FOOTER: &str = "kill <pid> quits through the signal callback";
@@ -81,6 +87,18 @@ static VIEW_FILLER: &str = "a paragraph long enough to wrap in most terminals, s
     viewer scrolls by wrapped rows rather than by lines of the text.";
 /// The viewer's share of the screen, both ways.
 const VIEW_PERCENT: u16 = 80;
+/// Messages the demo log keeps, and how often the ticker adds one.
+const LOG_CAPACITY: usize = 500;
+const LOG_EVERY: Duration = Duration::from_millis(700);
+/// The ticker's levels, in turn.
+static TICKER_LEVELS: [LogLevel; 6] = [
+    LogLevel::Info,
+    LogLevel::Debug,
+    LogLevel::Notice,
+    LogLevel::Info,
+    LogLevel::Warn,
+    LogLevel::Error,
+];
 /// The quit path: set by `q`, a signal and, through `on_panic`, by any panic.
 static QUIT: AtomicBool = AtomicBool::new(false);
 
@@ -116,6 +134,8 @@ fn main() -> Result<()> {
             })
             .install()?,
     }
+    let log = Arc::new(LogBuffer::new(LOG_CAPACITY).echo(Echo::Stdout, LogLevel::Notice));
+    log.notice("guard_demo starting: this line must appear on the shell");
     let mut builder = TerminalGuard::builder()
         .keyboard_enhancement(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
         .panic_policy(policy)
@@ -131,9 +151,12 @@ fn main() -> Result<()> {
     }
     let mut guard = builder.build()?;
     eprintln_safe!("this line must not appear: the TUI is up");
+    log.notice("the TUI is up: this line must not appear on the shell");
+    spawn_ticker(log.clone())?;
 
     let (mut show_help, mut help_scroll) = (false, Scroll::new());
     let mut cursor = ListCursor::new();
+    let mut log_scroll = LogScroll::new();
     let mut modal = Modal::None;
     let mut accepted: Option<String> = None;
     while tui_active() && !QUIT.load(Ordering::Acquire) {
@@ -152,7 +175,13 @@ fn main() -> Result<()> {
                     .areas(frame.area());
             let body = Paragraph::new(text).block(Block::bordered().title(" guard_demo "));
             frame.render_widget(body, head);
+            let [list, log_area] =
+                Layout::horizontal([Constraint::Fill(1), Constraint::Fill(2)]).areas(list);
             draw_list(frame, list, &mut cursor);
+            let log_view = LogView::new(&log)
+                .stamp(Stamp::Time)
+                .block(Block::bordered().title(" LogView "));
+            frame.render_stateful_widget(log_view, log_area, &mut log_scroll);
             if show_help {
                 let help = HelpPopup::from_rows(HELP_ROWS, Style::new().bold().cyan())
                     .footer(HELP_FOOTER.dark_gray());
@@ -182,8 +211,12 @@ fn main() -> Result<()> {
         // an open dialog takes every key
         if !matches!(modal, Modal::None) {
             if let Some(a) = modal_key(&mut modal, key) {
+                log.info(format!("accepted: {a}"));
                 accepted = Some(a);
             }
+            continue;
+        }
+        if log_scroll.key_with(key, KeyModifiers::SHIFT) != NavOutcome::Ignored {
             continue;
         }
         if key.kind != KeyEventKind::Press {
@@ -215,6 +248,7 @@ fn main() -> Result<()> {
     }
     drop(guard);
     eprintln_safe!("guard dropped: this line must appear");
+    log.notice("guard_demo done: this line must appear on the shell");
     for p in take_held_panics() {
         eprintln!("held: {p}");
     }
@@ -255,6 +289,20 @@ fn draw_modal(frame: &mut Frame, modal: &mut Modal) {
             frame.render_stateful_widget(view, area, scroll);
         }
     }
+}
+
+/// A thread adding a message to `log` every [`LOG_EVERY`] until the demo quits.
+fn spawn_ticker(log: Arc<LogBuffer>) -> Result<()> {
+    thread::Builder::new().name("ticker".into()).spawn(move || {
+        for (n, level) in (1..).zip(TICKER_LEVELS.iter().cycle()) {
+            if QUIT.load(Ordering::Acquire) {
+                break;
+            }
+            log.push(*level, format!("tick {n}: a {level} message from the ticker thread"));
+            thread::sleep(LOG_EVERY);
+        }
+    })?;
+    Ok(())
 }
 
 /// Only the rows in the cursor's window are formatted, as with a huge list.

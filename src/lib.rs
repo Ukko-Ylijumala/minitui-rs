@@ -29,12 +29,17 @@ and no run loop; each app keeps its own event loop and draws its own views.
 - [`Scroll`], [`TextView`], [`CanvasView`]: a view taller than its area,
   scrolled by line with the last page kept full: text, or a whole layout
   drawn on an off-screen buffer.
+- [`LogBuffer`], [`LogView`], [`LogScroll`]: a log pane: a bounded ring of
+  messages any thread pushes to (echoed to the shell while the TUI isn't
+  up), its tail following new lines; `LogSink` feeds it from the `log`
+  crate (feature `log`).
 */
 
 mod dialog;
 mod editor;
 mod form;
 mod list;
+mod logview;
 mod popup;
 mod scroll;
 mod signals;
@@ -45,6 +50,9 @@ pub use dialog::{Answer, ConfirmDialog, InputDialog, confirm_answer};
 pub use editor::{EditOutcome, EditorStyle, LineEditor};
 pub use form::{Field, Focus, Form, FormAction};
 pub use list::{ListCursor, Nav, NavOutcome};
+#[cfg(feature = "log")]
+pub use logview::LogSink;
+pub use logview::{Echo, LogBuffer, LogEntry, LogLevel, LogScroll, LogView, Stamp};
 pub use popup::HelpPopup;
 pub use scroll::{CanvasView, Scroll, TextView};
 pub use signals::{Signal, SignalBuilder, SignalHandler};

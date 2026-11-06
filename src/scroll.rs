@@ -131,11 +131,11 @@ pub struct CanvasView<'a> {
 
 /// The block around a view and its position indicator, shared by the views.
 #[derive(Debug, Clone)]
-struct Chrome<'a> {
-    block: Option<Block<'a>>,
+pub(crate) struct Chrome<'a> {
+    pub(crate) block: Option<Block<'a>>,
     /// What the indicator counts; `None` for no indicator.
-    what: Option<&'a str>,
-    style: Style,
+    pub(crate) what: Option<&'a str>,
+    pub(crate) style: Style,
 }
 
 /* ===== Scroll ============================================================= */
@@ -174,6 +174,11 @@ impl Scroll {
     /// Whether the last [`Scroll::window`] had more lines than rows.
     pub fn overflows(&self) -> bool {
         self.len > self.rows
+    }
+
+    /// Whether the last line is in view (as of the last [`Scroll::window`] or move).
+    pub fn at_bottom(&self) -> bool {
+        self.offset >= self.max_offset()
     }
 
     /// Back to the top: for other content in the same place (a new selection).
@@ -405,12 +410,12 @@ impl Default for Chrome<'_> {
 }
 
 impl Chrome<'_> {
-    fn inner(&self, area: Rect) -> Rect {
+    pub(crate) fn inner(&self, area: Rect) -> Rect {
         self.block.as_ref().map_or(area, |b| b.inner(area))
     }
 
     /// The block, with the indicator in its bottom border when the view overflows.
-    fn render(self, area: Rect, buf: &mut Buffer, scroll: &Scroll) {
+    pub(crate) fn render(self, area: Rect, buf: &mut Buffer, scroll: &Scroll) {
         let Some(mut block) = self.block else {
             return;
         };

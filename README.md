@@ -59,6 +59,11 @@ Not a framework: there is no app trait and no run loop. Each app keeps its own e
     - `key(key)`: ↑ ↓ Home End, PgUp / PgDn by the rows of the last draw less one, never past the end (so ↑ moves at once); `key_with(key, KeyModifiers::SHIFT)` for a detail pane beside a list
 - **TextView**: text in a `Scroll`ed view, optionally word-wrapped (scrolling by wrapped rows); only the lines in view are handed to the renderer; `lines a–b of N` in the bottom border when it overflows
 - **CanvasView**: a whole layout drawn on an off-screen buffer as tall as it needs, the rows in view copied into the frame, so panels of charts and tables scroll by line however small the terminal
+- **LogBuffer / LogView**: a log pane
+    - `LogBuffer`: the last N messages, each with its time and level (critical … trace, syslog's plus trace), pushed from any thread (`log.warn(..)`, `log.push(level, ..)`); optionally echoed to the shell (stdout or stderr) while the TUI isn't up, so setup messages stay visible
+    - `LogView`: the newest messages, one line each, `time LEVEL: message` styled by level (or the app's own `format`), the time in UTC as date + time, time only or none; only the lines in view are formatted
+    - `LogScroll`: follows the newest line until moved up, then stays on the lines it shows while new ones arrive and old ones drop out; End (or ↓ back to the bottom) follows again; `lines a–b of N` in the border while scrolled up
+    - `LogSink` (feature `log`): a `log` crate backend feeding a `LogBuffer`
 - Popup titles are given bare (`"keys"`, `"destroy"`) and shown padded with a space on either side
 
 ## Installation
@@ -72,6 +77,8 @@ version = "0.1"
 ```
 
 Releases are tagged `vX.Y.Z`; use `tag = "v0.1.3"` instead of `version` to pin one exactly.
+
+Features: `log` adds `LogSink`, a backend for the `log` crate (`features = ["log"]`).
 
 minitui's API uses ratatui and crossterm types (`Terminal`, `KeyboardEnhancementFlags`), so the app must depend on the same versions: ratatui 0.30 and crossterm 0.29.
 

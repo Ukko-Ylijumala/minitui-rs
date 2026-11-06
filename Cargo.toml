@@ -13,9 +13,14 @@ edition = "2024"
 # ratatui 0.30 requires 1.88
 rust-version = "1.88"
 
+[features]
+# LogSink: a `log` crate backend feeding a LogBuffer
+log = ["dep:log"]
+
 [dependencies]
 signal-hook = "0.3"
 crossterm = "0.29"
+log = { version = "0.4", optional = true, features = ["std"] }
 # lean: only the crossterm backend, pinned to the same crossterm as above.
 # unstable-rendered-line-info: Paragraph::line_count, used by wrap_lines only
 ratatui = { version = "0.30", default-features = false, features = ["crossterm_0_29", "unstable-rendered-line-info"] }

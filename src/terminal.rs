@@ -392,8 +392,8 @@ fn payload_str<'a>(info: &'a PanicHookInfo) -> Option<&'a str> {
         .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
 }
 
-/// Lock, shrugging off poisoning: these statics hold plain data, never torn.
-fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+/// Lock, shrugging off poisoning: these hold plain data, never torn.
+pub(crate) fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
