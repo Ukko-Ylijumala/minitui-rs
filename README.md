@@ -86,7 +86,7 @@ git = "https://github.com/Ukko-Ylijumala/minitui-rs"
 version = "0.1"
 ```
 
-Releases are tagged `vX.Y.Z`; use `tag = "v0.1.3"` instead of `version` to pin one exactly.
+Releases are tagged `vX.Y.Z`; use `tag = "v0.1.4"` instead of `version` to pin one exactly.
 
 Features: `log` adds `LogSink`, a backend for the `log` crate (`features = ["log"]`).
 
@@ -215,6 +215,10 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## Version History
 
+- 0.1.4: Log pane, status bar and charts
+    - `LogBuffer`, `LogView` and `LogScroll`, merged from edge-xdp-flood's EVENTS pane and mping-rs's log popup; `LogSink` (feature `log`) from edge-xdp-flood's `log` backend
+    - `StatusBar`, `KeyHints`, `Toast`, `Prompt` and `pill`, from the footers and status lines of all the apps; the y/N prompt from edge-xdp-flood's confirm bar and squawk's prompt
+    - `TimeChart`, `Trace`, `braille_spark` and `nice_ceil`, from the braille charts in edge-xdp-flood, mping-rs, squawk, zfs-browser and collector-status
 - 0.1.3: Forms, lists and scrolling views
     - `ListCursor`, merged from the list and table selection in zfs-browser, mping-rs, squawk, nft-browser and wiremeup
     - `Form` with text, checkbox and choice `Field`s, from wiremeup's form, mping-rs's add-target dialog and edge-xdp-flood's config dialog
