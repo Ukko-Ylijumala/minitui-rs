@@ -16,6 +16,8 @@ a [`Form`], `v` a wrapped [`TextView`]; `c` clears the log and `q` quits,
 both after a y/N [`Prompt`] in the [`StatusBar`] (it lapses in 5 s, and
 results show there as a [`Toast`]). Shift with ↑ ↓ Home End PgUp PgDn
 scrolls the [`LogView`] beside the list, which a ticker thread feeds.
+Under it a [`TimeChart`] draws two made-up signals, one with a gap every
+20 s; the newest of it is a [`braille_spark`] in the footer.
 The shell must come back clean after each, with the panic report on it.
 In `held` mode a worker panic leaves the TUI up and shows the held panic.
 The log's first and last lines echo on the shell, before the TUI comes up
@@ -25,14 +27,16 @@ Signals: `kill <pid>` (shown on screen) quits through the callback; in
 `bare` mode it restores the terminal and kills the demo by the signal.
 */
 
+use std::collections::VecDeque;
 use std::env;
+use std::f64::consts::TAU;
 use std::io::Result;
 use std::mem;
 use std::process;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags,
@@ -41,12 +45,12 @@ use minitui::{
     Answer, ConfirmDialog, Echo, EditOutcome, Field, Form, FormAction, HelpPopup, InputDialog,
     KeyHints, LineEditor, ListCursor, LogBuffer, LogLevel, LogScroll, LogView, NavOutcome,
     PanicPolicy, Prompt, Reply, Scroll, SignalHandler, Stamp, StatusBar, TerminalGuard, TextView,
-    Toast, confirm_answer, eprintln_safe, held_panics, pill, range_label, take_held_panics,
-    tui_active,
+    TimeChart, Toast, Trace, braille_spark, confirm_answer, eprintln_safe, held_panics, pill,
+    range_label, take_held_panics, tui_active,
 };
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Style, Stylize};
+use ratatui::style::{Color, Style, Stylize};
 use ratatui::widgets::{Block, Clear, List, ListItem, ListState, Paragraph};
 
 const TICK: Duration = Duration::from_millis(100);
@@ -116,6 +120,24 @@ static TICKER_LEVELS: [LogLevel; 6] = [
     LogLevel::Warn,
     LogLevel::Error,
 ];
+/// The chart: a sample every [`SAMPLE_EVERY`], [`CHART_SPAN`]'s worth kept.
+const SAMPLE_EVERY: Duration = Duration::from_millis(250);
+const CHART_SPAN: Duration = Duration::from_secs(60);
+const CHART_ROWS: u16 = 12;
+/// The signals' periods and levels, and the gap in the first: samples
+/// [`GAP_FROM`] to [`GAP_TO`] of every [`GAP_EVERY`].
+const SLOW_PERIOD: f64 = 20.0;
+const FAST_PERIOD: f64 = 7.0;
+const SLOW_MID: f64 = 50.0;
+const SLOW_AMPLITUDE: f64 = 40.0;
+const FAST_MID: f64 = 30.0;
+const FAST_AMPLITUDE: f64 = 25.0;
+const GAP_EVERY: u64 = 80;
+const GAP_FROM: u64 = 70;
+const GAP_TO: u64 = 74;
+/// The footer's sparkline: cells, and its fixed top.
+const SPARK_CELLS: usize = 12;
+const SPARK_MAX: f64 = 100.0;
 /// The quit path: set by `q`, a signal and, through `on_panic`, by any panic.
 static QUIT: AtomicBool = AtomicBool::new(false);
 
@@ -184,7 +206,18 @@ fn main() -> Result<()> {
     let mut modal = Modal::None;
     let mut prompt = Prompt::new();
     let mut toast = Toast::new().ttl(TOAST_TTL);
+    let keep = (CHART_SPAN.as_millis() / SAMPLE_EVERY.as_millis()) as usize;
+    let mut samples: VecDeque<(f64, f64)> = VecDeque::with_capacity(keep + 1);
+    let (mut taken, mut next_sample) = (0u64, Instant::now());
     while tui_active() && !QUIT.load(Ordering::Acquire) {
+        while Instant::now() >= next_sample {
+            samples.push_back(signals(taken));
+            if samples.len() > keep {
+                samples.pop_front();
+            }
+            taken += 1;
+            next_sample += SAMPLE_EVERY;
+        }
         let held = held_panics();
         let head = format!("{policy:?} · pid {} · bare: {bare}", process::id());
         let text = match held.last() {
@@ -200,14 +233,32 @@ fn main() -> Result<()> {
             .areas(frame.area());
             let body = Paragraph::new(text).block(Block::bordered().title(" guard_demo "));
             frame.render_widget(body, head);
-            let [list, log_area] =
+            let [list, right_area] =
                 Layout::horizontal([Constraint::Fill(1), Constraint::Fill(2)]).areas(list);
+            let [log_area, chart_area] =
+                Layout::vertical([Constraint::Fill(1), Constraint::Length(CHART_ROWS)])
+                    .areas(right_area);
             draw_list(frame, list, &mut cursor);
             let log_view = LogView::new(&log)
                 .stamp(Stamp::Time)
                 .block(Block::bordered().title(" LogView "));
             frame.render_stateful_widget(log_view, log_area, &mut log_scroll);
-            let mut right = vec![format!(" {} messages ", log.len()).dark_gray()];
+            let chart = TimeChart::new([
+                Trace::samples("slow", samples.iter().map(|s| s.0), SAMPLE_EVERY)
+                    .style(Color::Cyan),
+                Trace::samples("fast", samples.iter().map(|s| s.1), SAMPLE_EVERY)
+                    .style(Color::Yellow),
+            ])
+            .span(CHART_SPAN)
+            .nice(true)
+            .block(Block::bordered().title(" TimeChart "));
+            frame.render_widget(chart, chart_area);
+            let slow: Vec<f64> = samples.iter().map(|s| s.0).collect();
+            let spark = braille_spark(&slow, SPARK_CELLS, Some(SPARK_MAX));
+            let mut right = vec![
+                spark.cyan(),
+                format!(" {} messages ", log.len()).dark_gray(),
+            ];
             if !log_scroll.following() {
                 right.insert(0, pill("log held", Style::new().black().on_cyan()));
             }
@@ -343,6 +394,16 @@ fn draw_modal(frame: &mut Frame, modal: &mut Modal) {
             frame.render_stateful_widget(view, area, scroll);
         }
     }
+}
+
+/// The chart's two signals at sample `n`; the slow one has a gap now and then.
+fn signals(n: u64) -> (f64, f64) {
+    let t = n as f64 * SAMPLE_EVERY.as_secs_f64();
+    let slow = match n % GAP_EVERY {
+        GAP_FROM..GAP_TO => f64::NAN,
+        _ => SLOW_MID + SLOW_AMPLITUDE * (t * TAU / SLOW_PERIOD).sin(),
+    };
+    (slow, FAST_MID + FAST_AMPLITUDE * (t * TAU / FAST_PERIOD).sin())
 }
 
 /// A thread adding a message to `log` every [`LOG_EVERY`] until the demo quits.

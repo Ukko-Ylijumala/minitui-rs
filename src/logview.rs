@@ -41,9 +41,9 @@ use crate::{NavOutcome, Scroll, tui_active};
 
 /* ===== consts, statics and macros ========================================= */
 
-const SECS_PER_DAY: u64 = 86_400;
-const SECS_PER_HOUR: u64 = 3_600;
-const SECS_PER_MIN: u64 = 60;
+pub(crate) const SECS_PER_DAY: u64 = 86_400;
+pub(crate) const SECS_PER_HOUR: u64 = 3_600;
+pub(crate) const SECS_PER_MIN: u64 = 60;
 
 /**
 `LogBuffer::error(msg)` and friends: `msg` at that level, through the

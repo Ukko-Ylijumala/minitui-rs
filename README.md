@@ -70,6 +70,10 @@ Not a framework: there is no app trait and no run loop. Each app keeps its own e
     - `Toast`: a one-shot message styled by its level, kept until replaced or cleared, or lapsing after a set time
     - `Prompt`: an inline y/N question that takes the whole line: `y` goes ahead, any other key cancels (so a double tap of the key that asked can't confirm), and unanswered it lapses after 5 s
     - `pill`: ` text ` in a style, for markers like ` ⏳ working… `
+- **TimeChart**: time series as braille lines
+    - `Trace`: a line of `(seconds before now, value)` points, borrowed or owned, or of samples taken at a fixed interval; a NaN value is a gap rather than a line bridging it, and a lone point between gaps still shows
+    - `TimeChart`: traces from `-span` (or the oldest point) to now; y from 0, a set floor or the lowest value in view, up to a set top or the peak in view with head room, optionally rounded up to a nice 1/2/5 figure (`nice_ceil`); labelled at the bottom, middle and top, x as `-1m`, `-30s`, `now`, both formats replaceable; the traces' names and latest values in the top border instead of ratatui's legend box
+    - `braille_spark`: a sparkline in a string, two values a cell, a trickle always visible
 - Popup titles are given bare (`"keys"`, `"destroy"`) and shown padded with a space on either side
 
 ## Installation

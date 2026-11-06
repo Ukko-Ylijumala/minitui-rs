@@ -35,9 +35,12 @@ and no run loop; each app keeps its own event loop and draws its own views.
   crate (feature `log`).
 - [`StatusBar`], [`KeyHints`], [`Toast`], [`Prompt`]: the bottom line: a
   status either side, the key legend fitted between them hint by hint, a
-  one-shot message, and an inline y/N question that lapses unanswered.
+  one-shot message, and an inline y/N question that lapses unanswered.- [`TimeChart`], [`Trace`], [`braille_spark`]: time series as braille
+  lines up to now, gaps kept, scaled to what is in view, the latest values
+  in the border; and a sparkline in a string.
 */
 
+mod chart;
 mod dialog;
 mod editor;
 mod form;
@@ -50,6 +53,7 @@ mod statusbar;
 mod terminal;
 mod text;
 
+pub use chart::{TimeChart, Trace, braille_spark, nice_ceil};
 pub use dialog::{Answer, ConfirmDialog, InputDialog, confirm_answer};
 pub use editor::{EditOutcome, EditorStyle, LineEditor};
 pub use form::{Field, Focus, Form, FormAction};
