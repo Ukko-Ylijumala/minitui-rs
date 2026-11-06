@@ -33,6 +33,9 @@ and no run loop; each app keeps its own event loop and draws its own views.
   messages any thread pushes to (echoed to the shell while the TUI isn't
   up), its tail following new lines; `LogSink` feeds it from the `log`
   crate (feature `log`).
+- [`StatusBar`], [`KeyHints`], [`Toast`], [`Prompt`]: the bottom line: a
+  status either side, the key legend fitted between them hint by hint, a
+  one-shot message, and an inline y/N question that lapses unanswered.
 */
 
 mod dialog;
@@ -43,6 +46,7 @@ mod logview;
 mod popup;
 mod scroll;
 mod signals;
+mod statusbar;
 mod terminal;
 mod text;
 
@@ -56,6 +60,7 @@ pub use logview::{Echo, LogBuffer, LogEntry, LogLevel, LogScroll, LogView, Stamp
 pub use popup::HelpPopup;
 pub use scroll::{CanvasView, Scroll, TextView};
 pub use signals::{Signal, SignalBuilder, SignalHandler};
+pub use statusbar::{KeyHints, PROMPT_TTL, Prompt, Reply, StatusBar, Toast, pill};
 pub use terminal::{
     GuardBuilder, HeldPanic, PanicPolicy, TerminalGuard, Tui, eprintln_safe, held_panics,
     restore_terminal, take_held_panics, tui_active,

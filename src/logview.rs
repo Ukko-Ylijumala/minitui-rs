@@ -45,17 +45,35 @@ const SECS_PER_DAY: u64 = 86_400;
 const SECS_PER_HOUR: u64 = 3_600;
 const SECS_PER_MIN: u64 = 60;
 
-/// `LogBuffer::error(msg)` and friends: a push at that level.
+/**
+`LogBuffer::error(msg)` and friends: `msg` at that level, through the
+method named first (`push` there, `show` on a [`Toast`](crate::Toast)).
+*/
 macro_rules! level_fns {
-    ($($name:ident => $level:ident),+ $(,)?) => {
+    (&self $method:ident; $($name:ident => $level:ident),+ $(,)?) => {
         $(
-            #[doc = concat!("Push `msg` at [`LogLevel::", stringify!($level), "`].")]
+            #[doc = concat!(
+                "[`Self::", stringify!($method), "`] `msg` at ",
+                "[`LogLevel::", stringify!($level), "`]."
+            )]
             pub fn $name(&self, msg: impl Into<String>) {
-                self.push(LogLevel::$level, msg);
+                self.$method(LogLevel::$level, msg);
+            }
+        )+
+    };
+    (&mut self $method:ident; $($name:ident => $level:ident),+ $(,)?) => {
+        $(
+            #[doc = concat!(
+                "[`Self::", stringify!($method), "`] `msg` at ",
+                "[`LogLevel::", stringify!($level), "`]."
+            )]
+            pub fn $name(&mut self, msg: impl Into<String>) {
+                self.$method(LogLevel::$level, msg);
             }
         )+
     };
 }
+pub(crate) use level_fns;
 
 /* ===== types ============================================================== */
 
@@ -375,7 +393,7 @@ impl LogBuffer {
         ring.total += 1;
     }
 
-    level_fns!(
+    level_fns!(&self push;
         critical => Critical,
         error => Error,
         warn => Warn,

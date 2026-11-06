@@ -12,12 +12,14 @@ Keys: `p` panics on the UI thread, `w` on a worker thread, `h` toggles the
 [`HelpPopup`] (↑ ↓ Home End PgUp PgDn scroll it when it doesn't fit;
 otherwise they move in the [`ListCursor`] list), `i` opens an
 [`InputDialog`] (Tab masks the text, Enter asks a [`ConfirmDialog`]), `f`
-a [`Form`], `v` a wrapped [`TextView`], `q` quits; Shift with ↑ ↓ Home
-End PgUp PgDn scrolls the [`LogView`] beside the list, which a ticker
-thread feeds. The shell must come back clean after each, with the panic
-report on it. In `held` mode a worker panic leaves the TUI up and shows
-the held panic. The log's first and last lines echo on the shell, before
-the TUI comes up and after it is gone.
+a [`Form`], `v` a wrapped [`TextView`]; `c` clears the log and `q` quits,
+both after a y/N [`Prompt`] in the [`StatusBar`] (it lapses in 5 s, and
+results show there as a [`Toast`]). Shift with ↑ ↓ Home End PgUp PgDn
+scrolls the [`LogView`] beside the list, which a ticker thread feeds.
+The shell must come back clean after each, with the panic report on it.
+In `held` mode a worker panic leaves the TUI up and shows the held panic.
+The log's first and last lines echo on the shell, before the TUI comes up
+and after it is gone.
 
 Signals: `kill <pid>` (shown on screen) quits through the callback; in
 `bare` mode it restores the terminal and kills the demo by the signal.
@@ -37,9 +39,10 @@ use crossterm::event::{
 };
 use minitui::{
     Answer, ConfirmDialog, Echo, EditOutcome, Field, Form, FormAction, HelpPopup, InputDialog,
-    LineEditor, ListCursor, LogBuffer, LogLevel, LogScroll, LogView, NavOutcome, PanicPolicy,
-    Scroll, SignalHandler, Stamp, TerminalGuard, TextView, confirm_answer, eprintln_safe,
-    held_panics, range_label, take_held_panics, tui_active,
+    KeyHints, LineEditor, ListCursor, LogBuffer, LogLevel, LogScroll, LogView, NavOutcome,
+    PanicPolicy, Prompt, Reply, Scroll, SignalHandler, Stamp, StatusBar, TerminalGuard, TextView,
+    Toast, confirm_answer, eprintln_safe, held_panics, pill, range_label, take_held_panics,
+    tui_active,
 };
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -47,7 +50,17 @@ use ratatui::style::{Style, Stylize};
 use ratatui::widgets::{Block, Clear, List, ListItem, ListState, Paragraph};
 
 const TICK: Duration = Duration::from_millis(100);
-static HINT: &str = "h: help · i: input · f: form · v: view · q: quit";
+/// The footer's legend; what doesn't fit drops out from the end.
+static HINTS: &[(&str, &str)] = &[
+    ("h", "help"),
+    ("q", "quit"),
+    ("i", "input"),
+    ("f", "form"),
+    ("v", "view"),
+    ("c", "clear log"),
+    ("⇧↑↓", "scroll log"),
+    ("p/w", "panic"),
+];
 /// Key, what it does; an empty key continues the row above.
 static HELP_ROWS: &[(&str, &str)] = &[
     ("p", "panic on the UI thread"),
@@ -63,7 +76,8 @@ static HELP_ROWS: &[(&str, &str)] = &[
     ("↑ ↓ Home End", "scroll this help, when it doesn't fit;"),
     ("PgUp PgDn", "else move in the list"),
     ("⇧ + those", "scroll the log; ⇧End follows it again"),
-    ("q", "quit"),
+    ("c", "clear the log (asks y/N)"),
+    ("q", "quit (asks y/N)"),
 ];
 static HELP_FOOTER: &str = "kill <pid> quits through the signal callback";
 static INPUT_PROMPT: &str = "type something\n(readline keys: Ctrl-A/E/U/K/W, Ctrl-←/→)";
@@ -79,8 +93,11 @@ const FORM_FAMILY: usize = 3;
 /// Rows in the demo list; every [`LIST_SEPARATOR_EVERY`]th can't be selected.
 const LIST_LEN: usize = 200;
 const LIST_SEPARATOR_EVERY: usize = 10;
-/// Rows of the text above the list, borders included.
-const HEAD_ROWS: u16 = 8;
+/// Rows of the text above the list, borders included, and of the footer.
+const HEAD_ROWS: u16 = 6;
+const FOOTER_ROWS: u16 = 1;
+/// How long a result stays in the footer.
+const TOAST_TTL: Duration = Duration::from_secs(4);
 /// The viewer's text: numbered paragraphs, each long enough to wrap.
 const VIEW_PARAGRAPHS: usize = 40;
 static VIEW_FILLER: &str = "a paragraph long enough to wrap in most terminals, so that the \
@@ -101,6 +118,13 @@ static TICKER_LEVELS: [LogLevel; 6] = [
 ];
 /// The quit path: set by `q`, a signal and, through `on_panic`, by any panic.
 static QUIT: AtomicBool = AtomicBool::new(false);
+
+/// What the footer prompt asks about.
+#[derive(Debug, Clone, Copy)]
+enum Ask {
+    Quit,
+    ClearLog,
+}
 
 /// The open dialog, if any.
 enum Modal {
@@ -158,21 +182,22 @@ fn main() -> Result<()> {
     let mut cursor = ListCursor::new();
     let mut log_scroll = LogScroll::new();
     let mut modal = Modal::None;
-    let mut accepted: Option<String> = None;
+    let mut prompt = Prompt::new();
+    let mut toast = Toast::new().ttl(TOAST_TTL);
     while tui_active() && !QUIT.load(Ordering::Acquire) {
         let held = held_panics();
-        let head = format!("{policy:?} · pid {} · bare: {bare}\n{HINT}", process::id());
-        let mut text = match held.last() {
+        let head = format!("{policy:?} · pid {} · bare: {bare}", process::id());
+        let text = match held.last() {
             Some(p) => format!("{head}\n\nheld: {}", p.message),
             None => head,
         };
-        if let Some(a) = &accepted {
-            text.push_str(&format!("\n\naccepted: {a}"));
-        }
         guard.term.draw(|frame| {
-            let [head, list] =
-                Layout::vertical([Constraint::Length(HEAD_ROWS), Constraint::Fill(1)])
-                    .areas(frame.area());
+            let [head, list, footer] = Layout::vertical([
+                Constraint::Length(HEAD_ROWS),
+                Constraint::Fill(1),
+                Constraint::Length(FOOTER_ROWS),
+            ])
+            .areas(frame.area());
             let body = Paragraph::new(text).block(Block::bordered().title(" guard_demo "));
             frame.render_widget(body, head);
             let [list, log_area] =
@@ -182,6 +207,16 @@ fn main() -> Result<()> {
                 .stamp(Stamp::Time)
                 .block(Block::bordered().title(" LogView "));
             frame.render_stateful_widget(log_view, log_area, &mut log_scroll);
+            let mut right = vec![format!(" {} messages ", log.len()).dark_gray()];
+            if !log_scroll.following() {
+                right.insert(0, pill("log held", Style::new().black().on_cyan()));
+            }
+            let bar = StatusBar::new()
+                .left(toast.line().unwrap_or_default())
+                .hints(KeyHints::new(HINTS).label_style(Style::new().dark_gray()))
+                .right(right)
+                .prompt(prompt.line());
+            frame.render_widget(bar, footer);
             if show_help {
                 let help = HelpPopup::from_rows(HELP_ROWS, Style::new().bold().cyan())
                     .footer(HELP_FOOTER.dark_gray());
@@ -208,11 +243,29 @@ fn main() -> Result<()> {
             }
             _ => continue,
         };
+        // a question in the footer takes the next key
+        match prompt.key(key) {
+            Reply::NotAsked => {}
+            Reply::Wait => continue,
+            Reply::Yes(Ask::Quit) => {
+                QUIT.store(true, Ordering::Release);
+                continue;
+            }
+            Reply::Yes(Ask::ClearLog) => {
+                log.clear();
+                toast.notice("log cleared");
+                continue;
+            }
+            Reply::No(_) => {
+                toast.info("cancelled");
+                continue;
+            }
+        }
         // an open dialog takes every key
         if !matches!(modal, Modal::None) {
             if let Some(a) = modal_key(&mut modal, key) {
                 log.info(format!("accepted: {a}"));
-                accepted = Some(a);
+                toast.notice(format!("accepted: {a}"));
             }
             continue;
         }
@@ -223,7 +276,8 @@ fn main() -> Result<()> {
             continue;
         }
         match key.code {
-            KeyCode::Char('q') => QUIT.store(true, Ordering::Release),
+            KeyCode::Char('q') => prompt.ask(Ask::Quit, "quit the demo?"),
+            KeyCode::Char('c') => prompt.ask(Ask::ClearLog, "clear the log?"),
             KeyCode::Char('i') => {
                 modal = Modal::Input {
                     editor: LineEditor::default(),

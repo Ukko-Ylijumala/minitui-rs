@@ -64,6 +64,12 @@ Not a framework: there is no app trait and no run loop. Each app keeps its own e
     - `LogView`: the newest messages, one line each, `time LEVEL: message` styled by level (or the app's own `format`), the time in UTC as date + time, time only or none; only the lines in view are formatted
     - `LogScroll`: follows the newest line until moved up, then stays on the lines it shows while new ones arrive and old ones drop out; End (or ↓ back to the bottom) follows again; `lines a–b of N` in the border while scrolled up
     - `LogSink` (feature `log`): a `log` crate backend feeding a `LogBuffer`
+- **StatusBar**: the bottom line
+    - `StatusBar`: a status on the left, one on the right sized to its text, and the key legend in between; when narrow the hints give way first, then the left, and the right is cut last
+    - `KeyHints`: `(key, what it does)` pairs, keys in bold; only whole hints are shown, the rest dropping out from the end with an `…` in their place
+    - `Toast`: a one-shot message styled by its level, kept until replaced or cleared, or lapsing after a set time
+    - `Prompt`: an inline y/N question that takes the whole line: `y` goes ahead, any other key cancels (so a double tap of the key that asked can't confirm), and unanswered it lapses after 5 s
+    - `pill`: ` text ` in a style, for markers like ` ⏳ working… `
 - Popup titles are given bare (`"keys"`, `"destroy"`) and shown padded with a space on either side
 
 ## Installation
