@@ -31,15 +31,23 @@ Not a framework: there is no app trait and no run loop. Each app keeps its own e
 - **wrap_lines**: how many rows a text takes word-wrapped to a width, counted by ratatui's own wrapper (so it can't disagree with the rendering), for sizing popups
 - **ellipsize_start / ellipsize_end**: fit a string into a number of columns with a leading / trailing `…`; display width aware (CJK and emoji take two columns), borrowed when it already fits
 - **LineEditor**: a single-line text editor for prompts
-    - ← → Home End, Ctrl-← / Ctrl-→ by word, Backspace / Delete; readline Ctrl-A / E / U / K / W
+    - ← → Home End, Ctrl-← / Ctrl-→ (or Alt-) by word, Backspace / Delete, Ctrl-Backspace / Ctrl-Delete a word
+    - readline: Ctrl-A / E / B / F / H, Alt-B / F by word; kills Ctrl-U / K / W, Alt-D, Alt-Backspace, and Ctrl-Y puts the last one back
+    - moves and deletes by grapheme: an accented letter, a flag or a ZWJ emoji is one step
     - other Ctrl / Alt chords are ignored, never typed as their bare letter; Ctrl+Alt (AltGr on some layouts) is text
     - `handle_key` returns `Changed` / `Handled` / `Ignored`: Enter, Esc, Tab, Ctrl-C are left to the prompt
     - renders as one line that scrolls sideways by display columns to keep the cursor in view; `secret(true)` masks the text with `•`; `insert` takes a bracketed paste
-    - `cursor_column` for apps that show the terminal's own cursor instead of the highlighted cell
+    - `cursor_column` for apps that show the terminal's own cursor instead of the highlighted cell; `idle_line` for an unfocused field; `take` / `clear` after a submit
 - **InputDialog / ConfirmDialog**: modal prompts over the app's own state (what the text or the `y` means stays with the app)
     - input: title, prompt (any number of lines), the editor, an optional `[x]` checkbox, and the validation error in place of the key hint
     - confirm: title, message, the equivalent command in yellow, `y confirm · n / Esc cancel`; `confirm_answer(key)` maps the keys (no Enter-to-confirm, no held-down repeat)
     - sized to their text with a minimum width (64 / 40, without `clamp`, which panics on a narrower terminal), centered, capped to the screen, and tall enough that every wrapped line shows
+- **Form**: a modal form of labeled fields: text (a `LineEditor`), checkbox, choice
+    - Tab / ↓ and Shift-Tab / ↑ move the focus; Enter submits from any field (a checkbox too: it doesn't toggle); Esc cancels; Space toggles, ←→ choose
+    - optional Submit / Cancel buttons in the focus ring; `handle_key` returns `Changed` / `Handled` / `Ignored` / `Submit` / `Cancel`
+    - the app's note ("resolving…", the last submit's result) below the fields; the validation error in place of the hint, cleared by the next change; `fail(field, error)` also focuses the field
+    - fields by index with typed accessors (`text`, `checked`, `selected`, `editor_mut`); unfocused text fields show their start, cut with `…`
+    - sized to its fields, centered, capped to the screen; fields that don't fit the height show a page at a time around the focus
 - Popup titles are given bare (`"keys"`, `"destroy"`) and shown padded with a space on either side
 
 ## Installation

@@ -29,18 +29,18 @@ use crate::{LineEditor, wrap_lines};
 static INPUT_HINT: &str = "⏎ confirm · Esc cancel · ←→ Home/End move";
 static INPUT_HINT_CHECKBOX: &str = "⏎ confirm · Tab toggle · Esc cancel · ←→ Home/End move";
 static CONFIRM_HINT: &str = "y confirm · n / Esc cancel";
-static CHECKED: &str = "[x] ";
-static UNCHECKED: &str = "[ ] ";
+pub(crate) static CHECKED: &str = "[x] ";
+pub(crate) static UNCHECKED: &str = "[ ] ";
 
 /// Room to type in, even when the prompt is short.
-const INPUT_MIN_W: u16 = 64;
+pub(crate) const INPUT_MIN_W: u16 = 64;
 const CONFIRM_MIN_W: u16 = 40;
 
-const INPUT_COLOR: Color = Color::Cyan;
+pub(crate) const INPUT_COLOR: Color = Color::Cyan;
 const CONFIRM_COLOR: Color = Color::Red;
 const COMMAND_COLOR: Color = Color::Yellow;
-const ERROR_COLOR: Color = Color::Red;
-const HINT_COLOR: Color = Color::DarkGray;
+pub(crate) const ERROR_COLOR: Color = Color::Red;
+pub(crate) const HINT_COLOR: Color = Color::DarkGray;
 
 /* ===== types ============================================================== */
 

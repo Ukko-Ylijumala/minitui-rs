@@ -22,10 +22,13 @@ and no run loop; each app keeps its own event loop and draws its own views.
   by display width, optional masking.
 - [`InputDialog`], [`ConfirmDialog`], [`confirm_answer`]: modal prompts
   around the app's own state.
+- [`Form`]: a modal form of text, checkbox and choice [`Field`]s, with
+  focus, optional buttons, a note and the validation error.
 */
 
 mod dialog;
 mod editor;
+mod form;
 mod popup;
 mod signals;
 mod terminal;
@@ -33,6 +36,7 @@ mod text;
 
 pub use dialog::{Answer, ConfirmDialog, InputDialog, confirm_answer};
 pub use editor::{EditOutcome, EditorStyle, LineEditor};
+pub use form::{Field, Focus, Form, FormAction};
 pub use popup::HelpPopup;
 pub use signals::{Signal, SignalBuilder, SignalHandler};
 pub use terminal::{

@@ -10,10 +10,10 @@ real terminal (cargo test has no tty).
 
 Keys: `p` panics on the UI thread, `w` on a worker thread, `h` toggles the
 [`HelpPopup`] (↑ / ↓ scroll it when it doesn't fit), `i` opens an
-[`InputDialog`] (Tab masks the text, Enter asks a [`ConfirmDialog`]), `q`
-quits. The
-shell must come back clean after each, with the panic report on it. In
-`held` mode a worker panic leaves the TUI up and shows the held panic.
+[`InputDialog`] (Tab masks the text, Enter asks a [`ConfirmDialog`]), `f`
+a [`Form`], `q` quits. The shell must come back clean after each, with the
+panic report on it. In `held` mode a worker panic leaves the TUI up and
+shows the held panic.
 
 Signals: `kill <pid>` (shown on screen) quits through the callback; in
 `bare` mode it restores the terminal and kills the demo by the signal.
@@ -31,16 +31,16 @@ use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags,
 };
 use minitui::{
-    Answer, ConfirmDialog, EditOutcome, HelpPopup, InputDialog, LineEditor, PanicPolicy,
-    SignalHandler, TerminalGuard, confirm_answer, eprintln_safe, held_panics, take_held_panics,
-    tui_active,
+    Answer, ConfirmDialog, EditOutcome, Field, Form, FormAction, HelpPopup, InputDialog,
+    LineEditor, PanicPolicy, SignalHandler, TerminalGuard, confirm_answer, eprintln_safe,
+    held_panics, take_held_panics, tui_active,
 };
 use ratatui::Frame;
 use ratatui::style::{Style, Stylize};
 use ratatui::widgets::{Block, Paragraph};
 
 const TICK: Duration = Duration::from_millis(100);
-static HINT: &str = "h: help · i: input · q: quit";
+static HINT: &str = "h: help · i: input · f: form · q: quit";
 /// Key, what it does; an empty key continues the row above.
 static HELP_ROWS: &[(&str, &str)] = &[
     ("p", "panic on the UI thread"),
@@ -50,6 +50,7 @@ static HELP_ROWS: &[(&str, &str)] = &[
         "i",
         "an input dialog: Tab masks the text, Enter confirms it",
     ),
+    ("f", "a form: Enter submits it, an empty name is refused"),
     ("h / F1", "toggle this help"),
     ("↑ / ↓", "scroll this help, when it doesn't fit"),
     ("q", "quit"),
@@ -58,6 +59,13 @@ static HELP_FOOTER: &str = "kill <pid> quits through the signal callback";
 static INPUT_PROMPT: &str = "type something\n(readline keys: Ctrl-A/E/U/K/W, Ctrl-←/→)";
 static MASK_LABEL: &str = "mask the text";
 static ERR_EMPTY: &str = "type something first";
+static ERR_NO_NAME: &str = "name: required";
+static FAMILIES: [&str; 3] = ["any", "ipv4", "ipv6"];
+/// The demo form's fields, by index.
+const FORM_NAME: usize = 0;
+const FORM_PSK: usize = 1;
+const FORM_PAUSED: usize = 2;
+const FORM_FAMILY: usize = 3;
 /// The quit path: set by `q`, a signal and, through `on_panic`, by any panic.
 static QUIT: AtomicBool = AtomicBool::new(false);
 
@@ -72,6 +80,7 @@ enum Modal {
     Confirm {
         text: String,
     },
+    Form(Form),
 }
 
 fn main() -> Result<()> {
@@ -138,10 +147,14 @@ fn main() -> Result<()> {
         let key = match event::read()? {
             Event::Key(key) => key,
             Event::Paste(s) => {
-                if let Modal::Input { editor, error, .. } = &mut modal
-                    && editor.insert(&s) == EditOutcome::Changed
-                {
-                    *error = None;
+                match &mut modal {
+                    Modal::Input { editor, error, .. } => {
+                        if editor.insert(&s) == EditOutcome::Changed {
+                            *error = None;
+                        }
+                    }
+                    Modal::Form(form) => _ = form.insert(&s),
+                    Modal::None | Modal::Confirm { .. } => {}
                 }
                 continue;
             }
@@ -166,6 +179,7 @@ fn main() -> Result<()> {
                     masked: false,
                 };
             }
+            KeyCode::Char('f') => modal = Modal::Form(demo_form()),
             KeyCode::Char('h') | KeyCode::F(1) => show_help = !show_help,
             KeyCode::Up => help_scroll = help_scroll.saturating_sub(1),
             KeyCode::Down => help_scroll = help_scroll.saturating_add(1),
@@ -205,7 +219,21 @@ fn draw_modal(frame: &mut Frame, modal: &Modal) {
                 .command(format!("echo {text}"));
             frame.render_widget(dialog, frame.area());
         }
+        Modal::Form(form) => frame.render_widget(form, frame.area()),
     }
+}
+
+fn demo_form() -> Form {
+    Form::new(
+        "form",
+        vec![
+            Field::text("name", ""),
+            Field::editor("pre-shared key", LineEditor::default().secret(true)),
+            Field::checkbox("start paused", false),
+            Field::choice("family", FAMILIES, 0),
+        ],
+    )
+    .buttons("submit", "cancel")
 }
 
 /// One key for the open dialog; the accepted text when a confirm says yes.
@@ -242,6 +270,34 @@ fn modal_key(modal: &mut Modal, key: KeyEvent) -> Option<String> {
             }
             None
         }
+        Modal::Form(form) => match form.handle_key(key) {
+            FormAction::Submit if form.text(FORM_NAME).trim().is_empty() => {
+                form.fail(FORM_NAME, ERR_NO_NAME);
+                None
+            }
+            FormAction::Submit => {
+                let summary = format!(
+                    "{} (key: {} chars, paused: {}, family: {})",
+                    form.text(FORM_NAME).trim(),
+                    form.text(FORM_PSK).chars().count(),
+                    form.checked(FORM_PAUSED),
+                    FAMILIES[form.selected(FORM_FAMILY)],
+                );
+                *modal = Modal::None;
+                Some(summary)
+            }
+            FormAction::Cancel => {
+                *modal = Modal::None;
+                None
+            }
+            FormAction::Ignored
+                if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) =>
+            {
+                *modal = Modal::None;
+                None
+            }
+            FormAction::Changed | FormAction::Handled | FormAction::Ignored => None,
+        },
         Modal::Confirm { text } => match confirm_answer(key)? {
             Answer::Yes => {
                 let text = mem::take(text);

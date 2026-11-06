@@ -19,4 +19,5 @@ crossterm = "0.29"
 # lean: only the crossterm backend, pinned to the same crossterm as above.
 # unstable-rendered-line-info: Paragraph::line_count, used by wrap_lines only
 ratatui = { version = "0.30", default-features = false, features = ["crossterm_0_29", "unstable-rendered-line-info"] }
+unicode-segmentation = "1.12"
 unicode-width = "0.2"

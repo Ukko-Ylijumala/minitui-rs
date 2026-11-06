@@ -4,8 +4,13 @@
 A single-line text editor for prompts: [`LineEditor`]. Lifted from
 zfs-browser's modal `Input`, the furthest along of the per-app copies
 (nft-browser's scrolled by `char`s, so wide text overflowed the box, and
-had no readline keys; mping-rs and edge-xdp-flood use the tui-input crate).
+had no readline keys). What mping-rs, edge-xdp-flood and wiremeup got from
+the tui-input crate is here too: grapheme-wise editing, the kill buffer
+(Ctrl-Y) and the Alt word keys. Unlike their fields, the line scrolls to
+keep the cursor in view, and a cursor after a wide character lands on it.
 */
+
+use std::mem;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::buffer::Buffer;
@@ -13,7 +18,10 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Widget;
-use unicode_width::UnicodeWidthChar;
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
+
+use crate::ellipsize_end;
 
 /* ===== consts and statics ================================================= */
 
@@ -22,8 +30,10 @@ static PREFIX: &str = "> ";
 static SCROLLED_PREFIX: &str = "‹ ";
 /// Display width of either prefix.
 const PREFIX_W: usize = 2;
-/// Stands in for every char of a secret.
-const MASK: char = '•';
+/// Stands in for every grapheme of a secret.
+static MASK: &str = "•";
+/// The cursor cell past the end of the text.
+static BLANK: &str = " ";
 
 /* ===== types ============================================================== */
 
@@ -34,11 +44,17 @@ columns, so wide characters fit) to keep the cursor in view, the cursor
 drawn as a highlighted cell; `‹ ` replaces `> ` when the start is scrolled
 off. A secret editor shows `•` for every character.
 
+The cursor moves and deletes by grapheme (a user-perceived character): an
+`e` with a combining accent, a flag or a ZWJ emoji sequence is one step.
+
 Keys ([`LineEditor::handle_key`]):
-- ← → Home End move; Ctrl-← / Ctrl-→ by word
-- Backspace / Delete delete a character
-- readline: Ctrl-A / Ctrl-E start / end, Ctrl-U / Ctrl-K delete to the
-  start / end, Ctrl-W the word before the cursor
+- ← → Home End move; Ctrl-← / Ctrl-→ (or Alt-← / Alt-→) by word
+- Backspace / Delete delete a character; Ctrl-Backspace / Ctrl-Delete a word
+- readline: Ctrl-A / Ctrl-E start / end, Ctrl-B / Ctrl-F back / forward,
+  Alt-B / Alt-F by word, Ctrl-H Backspace
+- readline kills: Ctrl-U / Ctrl-K to the start / end, Ctrl-W / Alt-Backspace
+  the word before the cursor, Alt-D the word after it; Ctrl-Y puts the last
+  killed text back (also the word kills above)
 - any other Ctrl or Alt chord is ignored, never typed as its bare letter;
   Ctrl+Alt together is AltGr on some layouts (`@` on Nordic ones): text
 
@@ -48,8 +64,10 @@ they mean is the prompt's business, not the editor's.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LineEditor {
     text: String,
-    /// Byte offset into `text`, always on a char boundary.
+    /// Byte offset into `text`, always on a grapheme boundary.
     cursor: usize,
+    /// The last text a kill removed, for Ctrl-Y.
+    killed: String,
     secret: bool,
     style: EditorStyle,
 }
@@ -77,10 +95,10 @@ pub enum EditOutcome {
 }
 
 /// The visible part of the text for a given width.
-struct Window {
-    /// Chars (masked if secret) from the first visible one to past the last.
-    chars: Vec<char>,
-    /// The cursor's index in `chars`; `chars.len()` when past the end.
+struct Window<'a> {
+    /// Graphemes (masked if secret) from the first visible one to past the last.
+    cells: Vec<&'a str>,
+    /// The cursor's index in `cells`; `cells.len()` when past the end.
     cursor: usize,
     /// The start of the text is scrolled off.
     scrolled: bool,
@@ -137,14 +155,21 @@ impl LineEditor {
         self.cursor = self.text.len();
     }
 
+    /// Empty the text (the kill buffer stays, for Ctrl-Y).
+    pub fn clear(&mut self) {
+        self.set_text(String::new());
+    }
+
+    /// Take the text out, leaving the editor empty: submit and start over.
+    pub fn take(&mut self) -> String {
+        self.cursor = 0;
+        mem::take(&mut self.text)
+    }
+
     /// Move the cursor to byte offset `at`, clamped to the text and moved back
-    /// onto a char boundary.
+    /// to the start of the grapheme it falls in.
     pub fn set_cursor(&mut self, at: usize) {
-        let mut at = at.min(self.text.len());
-        while !self.text.is_char_boundary(at) {
-            at -= 1;
-        }
-        self.cursor = at;
+        self.cursor = grapheme_start(&self.text, at);
     }
 
     /**
@@ -158,7 +183,8 @@ impl LineEditor {
             return EditOutcome::Handled;
         }
         self.text.insert_str(self.cursor, &clean);
-        self.cursor += clean.len();
+        // past the insert; a joiner typed before an emoji may have merged them
+        self.cursor = grapheme_end(&self.text, self.cursor + clean.len());
         EditOutcome::Changed
     }
 
@@ -174,20 +200,23 @@ impl LineEditor {
             && let KeyCode::Char(c) = key.code
         {
             return match ctrl {
-                true => self.readline(c),
-                false => EditOutcome::Ignored,
+                true => self.readline_ctrl(c),
+                false => self.readline_alt(c),
             };
         }
+        let (prev, next) = (self.prev_grapheme(), self.next_grapheme());
         match key.code {
-            KeyCode::Char(c) => self.insert_char(c),
-            KeyCode::Left if ctrl => self.move_to(self.word_start()),
-            KeyCode::Right if ctrl => self.move_to(self.word_end()),
-            KeyCode::Left => self.move_to(prev_boundary(&self.text, self.cursor)),
-            KeyCode::Right => self.move_to(next_boundary(&self.text, self.cursor)),
+            KeyCode::Char(c) => self.insert(c.encode_utf8(&mut [0; 4])),
+            KeyCode::Left if ctrl || alt => self.move_to(self.word_start()),
+            KeyCode::Right if ctrl || alt => self.move_to(self.word_end()),
+            KeyCode::Left => self.move_to(prev),
+            KeyCode::Right => self.move_to(next),
             KeyCode::Home => self.move_to(0),
             KeyCode::End => self.move_to(self.text.len()),
-            KeyCode::Backspace => self.delete(prev_boundary(&self.text, self.cursor), self.cursor),
-            KeyCode::Delete => self.delete(self.cursor, next_boundary(&self.text, self.cursor)),
+            KeyCode::Backspace if ctrl || alt => self.kill(self.word_start(), self.cursor),
+            KeyCode::Delete if ctrl || alt => self.kill(self.cursor, self.word_end()),
+            KeyCode::Backspace => self.delete(prev, self.cursor),
+            KeyCode::Delete => self.delete(self.cursor, next),
             _ => EditOutcome::Ignored,
         }
     }
@@ -199,27 +228,39 @@ impl LineEditor {
     */
     pub fn line(&self, width: u16) -> Line<'static> {
         let win = self.window(width);
-        let prefix = if win.scrolled {
-            SCROLLED_PREFIX
-        } else {
-            PREFIX
+        let prefix = match win.scrolled {
+            true => SCROLLED_PREFIX,
+            false => PREFIX,
         };
-        let before: String = win.chars[..win.cursor].iter().collect();
-        let under = win
-            .chars
-            .get(win.cursor)
-            .map_or(" ".to_string(), char::to_string);
-        let after: String = win
-            .chars
-            .get(win.cursor + 1..)
-            .unwrap_or_default()
-            .iter()
-            .collect();
+        let before: String = win.cells[..win.cursor].concat();
+        let under = win.cells.get(win.cursor).copied().unwrap_or(BLANK);
+        let after: String = win.cells.get(win.cursor + 1..).unwrap_or_default().concat();
         Line::from(vec![
             Span::styled(prefix, self.style.prefix),
             Span::styled(before, self.style.text),
-            Span::styled(under, self.style.cursor),
+            Span::styled(under.to_string(), self.style.cursor),
             Span::styled(after, self.style.text),
+        ])
+    }
+
+    /**
+    The editor as shown while something else has the focus (the other
+    fields of a form): the start of the text, cut with `…` when it doesn't
+    fit, and no cursor cell. `width` columns at most, prefix included.
+    */
+    pub fn idle_line(&self, width: u16) -> Line<'static> {
+        let room = usize::from(width).saturating_sub(PREFIX_W);
+        let masked;
+        let text = match self.secret {
+            true => {
+                masked = MASK.repeat(self.text.graphemes(true).count());
+                masked.as_str()
+            }
+            false => self.text.as_str(),
+        };
+        Line::from(vec![
+            Span::styled(PREFIX, self.style.prefix),
+            Span::styled(ellipsize_end(text, room).into_owned(), self.style.text),
         ])
     }
 
@@ -230,24 +271,18 @@ impl LineEditor {
     */
     pub fn cursor_column(&self, width: u16) -> u16 {
         let win = self.window(width);
-        let cols: usize = win.chars[..win.cursor].iter().map(|&c| char_w(c)).sum();
+        let cols: usize = win.cells[..win.cursor].iter().map(|g| g.width()).sum();
         u16::try_from(PREFIX_W + cols).unwrap_or(u16::MAX)
     }
 
     /* ----- editing ----- */
-
-    fn insert_char(&mut self, c: char) -> EditOutcome {
-        self.text.insert(self.cursor, c);
-        self.cursor += c.len_utf8();
-        EditOutcome::Changed
-    }
 
     fn move_to(&mut self, at: usize) -> EditOutcome {
         self.cursor = at;
         EditOutcome::Handled
     }
 
-    /// Delete `from..to` (char boundaries), leaving the cursor at `from`.
+    /// Delete `from..to` (grapheme boundaries), leaving the cursor at `from`.
     fn delete(&mut self, from: usize, to: usize) -> EditOutcome {
         if from == to {
             return EditOutcome::Handled;
@@ -257,16 +292,62 @@ impl LineEditor {
         EditOutcome::Changed
     }
 
+    /// [`LineEditor::delete`], keeping what went for Ctrl-Y.
+    fn kill(&mut self, from: usize, to: usize) -> EditOutcome {
+        if from < to {
+            self.killed = self.text[from..to].to_string();
+        }
+        self.delete(from, to)
+    }
+
+    /// Put the last killed text back at the cursor.
+    fn yank(&mut self) -> EditOutcome {
+        let killed = mem::take(&mut self.killed);
+        let outcome = self.insert(&killed);
+        self.killed = killed;
+        outcome
+    }
+
     /// Ctrl-`c`: readline editing; other letters are ignored, not typed.
-    fn readline(&mut self, c: char) -> EditOutcome {
+    fn readline_ctrl(&mut self, c: char) -> EditOutcome {
         match c {
             'a' => self.move_to(0),
             'e' => self.move_to(self.text.len()),
-            'u' => self.delete(0, self.cursor),
-            'k' => self.delete(self.cursor, self.text.len()),
-            'w' => self.delete(self.word_start(), self.cursor),
+            'b' => self.move_to(self.prev_grapheme()),
+            'f' => self.move_to(self.next_grapheme()),
+            'h' => self.delete(self.prev_grapheme(), self.cursor),
+            'u' => self.kill(0, self.cursor),
+            'k' => self.kill(self.cursor, self.text.len()),
+            'w' => self.kill(self.word_start(), self.cursor),
+            'y' => self.yank(),
             _ => EditOutcome::Ignored,
         }
+    }
+
+    /// Alt-`c`: readline's word keys; other letters are ignored, not typed.
+    fn readline_alt(&mut self, c: char) -> EditOutcome {
+        match c {
+            'b' => self.move_to(self.word_start()),
+            'f' => self.move_to(self.word_end()),
+            'd' => self.kill(self.cursor, self.word_end()),
+            _ => EditOutcome::Ignored,
+        }
+    }
+
+    /// The grapheme boundary before the cursor (0 at the start).
+    fn prev_grapheme(&self) -> usize {
+        self.text[..self.cursor]
+            .grapheme_indices(true)
+            .next_back()
+            .map_or(0, |(i, _)| i)
+    }
+
+    /// The grapheme boundary after the cursor (the cursor at the end).
+    fn next_grapheme(&self) -> usize {
+        self.text[self.cursor..]
+            .graphemes(true)
+            .next()
+            .map_or(self.cursor, |g| self.cursor + g.len())
     }
 
     /**
@@ -295,33 +376,33 @@ impl LineEditor {
     /* ----- rendering ----- */
 
     /**
-    The visible chars for a line `width` columns wide. Scrolls by display
+    The visible graphemes for a line `width` columns wide. Scrolls by display
     columns, not chars: a wide (CJK) character takes two cells. The window
     starts as far left as still shows the cursor cell (a column of its own
     past the end), then takes whatever fits after it.
     */
-    fn window(&self, width: u16) -> Window {
+    fn window(&self, width: u16) -> Window<'_> {
         let room = usize::from(width).saturating_sub(PREFIX_W).max(1);
-        let chars: Vec<char> = match self.secret {
-            true => self.text.chars().map(|_| MASK).collect(),
-            false => self.text.chars().collect(),
+        let cells: Vec<&str> = match self.secret {
+            true => self.text.graphemes(true).map(|_| MASK).collect(),
+            false => self.text.graphemes(true).collect(),
         };
-        let cursor = self.text[..self.cursor].chars().count();
+        let cursor = self.text[..self.cursor].graphemes(true).count();
 
         let mut start = cursor;
-        let mut used = chars.get(cursor).map_or(1, |&c| char_w(c).max(1));
-        while start > 0 && used + char_w(chars[start - 1]) <= room {
+        let mut used = cells.get(cursor).map_or(1, |g| g.width().max(1));
+        while start > 0 && used + cells[start - 1].width() <= room {
             start -= 1;
-            used += char_w(chars[start]);
+            used += cells[start].width();
         }
-        let mut end = cursor.min(chars.len());
-        let mut shown: usize = chars[start..end].iter().map(|&c| char_w(c)).sum();
-        while end < chars.len() && shown + char_w(chars[end]) <= room {
-            shown += char_w(chars[end]);
+        let mut end = cursor.min(cells.len());
+        let mut shown: usize = cells[start..end].iter().map(|g| g.width()).sum();
+        while end < cells.len() && shown + cells[end].width() <= room {
+            shown += cells[end].width();
             end += 1;
         }
         Window {
-            chars: chars[start..end].to_vec(),
+            cells: cells[start..end].to_vec(),
             cursor: cursor - start,
             scrolled: start > 0,
         }
@@ -348,18 +429,24 @@ impl Default for EditorStyle {
 
 /* ===== helpers ============================================================ */
 
-fn char_w(c: char) -> usize {
-    c.width().unwrap_or(0)
+/// The start of the grapheme byte offset `at` falls in; the end at or past it.
+fn grapheme_start(s: &str, at: usize) -> usize {
+    if at >= s.len() {
+        return s.len();
+    }
+    s.grapheme_indices(true)
+        .map(|(i, _)| i)
+        .take_while(|&i| i <= at)
+        .last()
+        .unwrap_or(0)
 }
 
-/// The char boundary before byte offset `at` (0 at the start).
-fn prev_boundary(s: &str, at: usize) -> usize {
-    s[..at].char_indices().next_back().map_or(0, |(i, _)| i)
-}
-
-/// The char boundary after byte offset `at` (`at` at the end).
-fn next_boundary(s: &str, at: usize) -> usize {
-    s[at..].chars().next().map_or(at, |c| at + c.len_utf8())
+/// The first grapheme boundary at or after byte offset `at`.
+fn grapheme_end(s: &str, at: usize) -> usize {
+    s.grapheme_indices(true)
+        .map(|(i, _)| i)
+        .find(|&i| i >= at)
+        .unwrap_or(s.len())
 }
 
 /* ===== tests ============================================================== */
@@ -374,6 +461,10 @@ mod tests {
 
     fn ctrl(c: char) -> KeyEvent {
         KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
+    }
+
+    fn alt(c: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT)
     }
 
     fn type_str(ed: &mut LineEditor, s: &str) {
@@ -463,8 +554,7 @@ mod tests {
         assert_eq!(ed.text(), "@");
         // other chords are nobody's text
         assert_eq!(ed.handle_key(ctrl('x')), EditOutcome::Ignored);
-        let alt_b = KeyEvent::new(KeyCode::Char('b'), KeyModifiers::ALT);
-        assert_eq!(ed.handle_key(alt_b), EditOutcome::Ignored);
+        assert_eq!(ed.handle_key(alt('x')), EditOutcome::Ignored);
         assert_eq!(ed.text(), "@");
     }
 
@@ -510,12 +600,16 @@ mod tests {
     }
 
     #[test]
-    fn set_cursor_lands_on_a_char_boundary() {
+    fn set_cursor_lands_on_a_grapheme_boundary() {
         let mut ed = LineEditor::new("aä");
         ed.set_cursor(2); // inside 'ä'
         assert_eq!(ed.cursor(), 1);
         ed.set_cursor(99);
         assert_eq!(ed.cursor(), "aä".len());
+        // inside the decomposed é: back to the 'e'
+        let mut ed = LineEditor::new("ae\u{301}b");
+        ed.set_cursor(2);
+        assert_eq!(ed.cursor(), 1);
     }
 
     #[test]
@@ -562,6 +656,120 @@ mod tests {
         let ed = LineEditor::new("hunter2").secret(true);
         assert_eq!(shown(&ed, 20), "> ••••••• ");
         assert_eq!(ed.text(), "hunter2");
+    }
+
+    #[test]
+    fn graphemes_move_and_delete_as_one() {
+        // a decomposed é, a flag, a ZWJ family: one step each
+        let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
+        let text = format!("e\u{301}\u{1F1EB}\u{1F1EE}{family}");
+        let mut ed = LineEditor::new(text.clone());
+        ed.handle_key(press(KeyCode::Left));
+        assert_eq!(ed.cursor(), text.len() - family.len());
+        ed.handle_key(press(KeyCode::Left));
+        assert_eq!(ed.cursor(), "e\u{301}".len());
+        ed.handle_key(press(KeyCode::Backspace));
+        assert_eq!(ed.text(), format!("\u{1F1EB}\u{1F1EE}{family}"));
+        ed.handle_key(press(KeyCode::Delete));
+        assert_eq!(ed.text(), family);
+        // and render as one cell each
+        let ed = LineEditor::new(format!("x{family}"));
+        assert_eq!(ed.line(20).spans[1].content, format!("x{family}"));
+    }
+
+    #[test]
+    fn a_combining_mark_typed_after_its_base_joins_it() {
+        let mut ed = LineEditor::new("e");
+        ed.handle_key(press(KeyCode::Char('\u{301}')));
+        assert_eq!(ed.cursor(), "e\u{301}".len());
+        ed.handle_key(press(KeyCode::Left));
+        assert_eq!(ed.cursor(), 0, "é is one step back");
+    }
+
+    #[test]
+    fn kills_can_be_yanked_back() {
+        let mut ed = LineEditor::new("one two three");
+        assert_eq!(ed.handle_key(ctrl('w')), EditOutcome::Changed);
+        assert_eq!(ed.text(), "one two ");
+        ed.handle_key(press(KeyCode::Home));
+        assert_eq!(ed.handle_key(ctrl('y')), EditOutcome::Changed);
+        assert_eq!(ed.text(), "threeone two ");
+        assert_eq!(ed.cursor(), "three".len());
+        // yanking again puts the same text back again
+        ed.handle_key(ctrl('y'));
+        assert_eq!(ed.text(), "threethreeone two ");
+        // a plain delete is not a kill
+        ed.handle_key(press(KeyCode::Backspace));
+        ed.handle_key(press(KeyCode::End));
+        ed.handle_key(ctrl('y'));
+        assert_eq!(ed.text(), "threethreone two three");
+        // nothing killed yet: nothing to yank
+        let mut fresh = LineEditor::new("x");
+        assert_eq!(fresh.handle_key(ctrl('y')), EditOutcome::Handled);
+    }
+
+    #[test]
+    fn alt_and_word_keys() {
+        let mut ed = LineEditor::new("one two three");
+        assert_eq!(ed.handle_key(alt('b')), EditOutcome::Handled);
+        assert_eq!(ed.cursor(), "one two ".len());
+        ed.handle_key(alt('b'));
+        assert_eq!(ed.handle_key(alt('d')), EditOutcome::Changed);
+        assert_eq!(ed.text(), "one  three");
+        ed.handle_key(alt('f'));
+        assert_eq!(ed.cursor(), "one  three".len());
+        let alt_bs = KeyEvent::new(KeyCode::Backspace, KeyModifiers::ALT);
+        ed.handle_key(alt_bs);
+        assert_eq!(ed.text(), "one  ");
+        let ctrl_bs = KeyEvent::new(KeyCode::Backspace, KeyModifiers::CONTROL);
+        ed.handle_key(ctrl_bs);
+        assert_eq!(ed.text(), "");
+        ed.handle_key(ctrl('y'));
+        assert_eq!(ed.text(), "one  ", "the last kill was the word");
+        ed.handle_key(press(KeyCode::Home));
+        let ctrl_del = KeyEvent::new(KeyCode::Delete, KeyModifiers::CONTROL);
+        ed.handle_key(ctrl_del);
+        assert_eq!(ed.text(), "  ");
+    }
+
+    #[test]
+    fn readline_char_keys() {
+        let mut ed = LineEditor::new("abc");
+        ed.handle_key(ctrl('b'));
+        assert_eq!(ed.cursor(), 2);
+        ed.handle_key(ctrl('h'));
+        assert_eq!(ed.text(), "ac");
+        ed.handle_key(ctrl('f'));
+        assert_eq!(ed.cursor(), 2);
+    }
+
+    #[test]
+    fn take_and_clear_empty_the_editor() {
+        let mut ed = LineEditor::new("10.0.0.1");
+        assert_eq!(ed.take(), "10.0.0.1");
+        assert!(ed.is_empty());
+        assert_eq!(ed.cursor(), 0);
+        type_str(&mut ed, "ab");
+        ed.handle_key(ctrl('u'));
+        type_str(&mut ed, "x");
+        ed.clear();
+        assert!(ed.is_empty());
+        ed.handle_key(ctrl('y'));
+        assert_eq!(ed.text(), "ab", "the kill buffer outlives a clear");
+    }
+
+    #[test]
+    fn the_idle_line_shows_the_start_and_no_cursor() {
+        let ed = LineEditor::new("0123456789abcdef");
+        let line = ed.idle_line(10);
+        assert_eq!(line.to_string(), "> 0123456…");
+        assert!(line.spans.iter().all(|s| s.style != EditorStyle::default().cursor));
+        assert_eq!(LineEditor::new("ab").idle_line(10).to_string(), "> ab");
+        let secret = LineEditor::new("e\u{301}x").secret(true);
+        assert_eq!(secret.idle_line(10).to_string(), "> ••");
+        for w in 0..4 {
+            assert!(width(&ed.idle_line(w)) <= usize::from(w).max(PREFIX_W));
+        }
     }
 
     #[test]
