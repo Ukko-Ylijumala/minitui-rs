@@ -9,7 +9,8 @@ real terminal (cargo test has no tty).
     cargo run --example guard_demo -- bare    # signals: no quit callback
 
 Keys: `p` panics on the UI thread, `w` on a worker thread, `h` toggles the
-[`HelpPopup`] (↑ / ↓ scroll it when it doesn't fit), `i` opens an
+[`HelpPopup`] (↑ / ↓ scroll it when it doesn't fit; otherwise they, Home,
+End, PgUp and PgDn move in the [`ListCursor`] list), `i` opens an
 [`InputDialog`] (Tab masks the text, Enter asks a [`ConfirmDialog`]), `f`
 a [`Form`], `q` quits. The shell must come back clean after each, with the
 panic report on it. In `held` mode a worker panic leaves the TUI up and
@@ -32,12 +33,13 @@ use crossterm::event::{
 };
 use minitui::{
     Answer, ConfirmDialog, EditOutcome, Field, Form, FormAction, HelpPopup, InputDialog,
-    LineEditor, PanicPolicy, SignalHandler, TerminalGuard, confirm_answer, eprintln_safe,
-    held_panics, take_held_panics, tui_active,
+    LineEditor, ListCursor, PanicPolicy, SignalHandler, TerminalGuard, confirm_answer,
+    eprintln_safe, held_panics, take_held_panics, tui_active,
 };
 use ratatui::Frame;
+use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Style, Stylize};
-use ratatui::widgets::{Block, Paragraph};
+use ratatui::widgets::{Block, List, ListItem, ListState, Paragraph};
 
 const TICK: Duration = Duration::from_millis(100);
 static HINT: &str = "h: help · i: input · f: form · q: quit";
@@ -52,7 +54,8 @@ static HELP_ROWS: &[(&str, &str)] = &[
     ),
     ("f", "a form: Enter submits it, an empty name is refused"),
     ("h / F1", "toggle this help"),
-    ("↑ / ↓", "scroll this help, when it doesn't fit"),
+    ("↑ / ↓", "scroll this help, when it doesn't fit;"),
+    ("", "else move in the list (Home End PgUp PgDn too)"),
     ("q", "quit"),
 ];
 static HELP_FOOTER: &str = "kill <pid> quits through the signal callback";
@@ -66,6 +69,11 @@ const FORM_NAME: usize = 0;
 const FORM_PSK: usize = 1;
 const FORM_PAUSED: usize = 2;
 const FORM_FAMILY: usize = 3;
+/// Rows in the demo list; every [`LIST_SEPARATOR_EVERY`]th can't be selected.
+const LIST_LEN: usize = 200;
+const LIST_SEPARATOR_EVERY: usize = 10;
+/// Rows of the text above the list, borders included.
+const HEAD_ROWS: u16 = 8;
 /// The quit path: set by `q`, a signal and, through `on_panic`, by any panic.
 static QUIT: AtomicBool = AtomicBool::new(false);
 
@@ -117,6 +125,7 @@ fn main() -> Result<()> {
     eprintln_safe!("this line must not appear: the TUI is up");
 
     let (mut show_help, mut help_scroll) = (false, 0u16);
+    let mut cursor = ListCursor::new();
     let mut modal = Modal::None;
     let mut accepted: Option<String> = None;
     while tui_active() && !QUIT.load(Ordering::Acquire) {
@@ -130,8 +139,12 @@ fn main() -> Result<()> {
             text.push_str(&format!("\n\naccepted: {a}"));
         }
         guard.term.draw(|frame| {
+            let [head, list] =
+                Layout::vertical([Constraint::Length(HEAD_ROWS), Constraint::Fill(1)])
+                    .areas(frame.area());
             let body = Paragraph::new(text).block(Block::bordered().title(" guard_demo "));
-            frame.render_widget(body, frame.area());
+            frame.render_widget(body, head);
+            draw_list(frame, list, &mut cursor);
             if show_help {
                 let help = HelpPopup::from_rows(HELP_ROWS, Style::new().bold().cyan())
                     .footer(HELP_FOOTER.dark_gray());
@@ -181,14 +194,18 @@ fn main() -> Result<()> {
             }
             KeyCode::Char('f') => modal = Modal::Form(demo_form()),
             KeyCode::Char('h') | KeyCode::F(1) => show_help = !show_help,
-            KeyCode::Up => help_scroll = help_scroll.saturating_sub(1),
-            KeyCode::Down => help_scroll = help_scroll.saturating_add(1),
+            KeyCode::Up if show_help => help_scroll = help_scroll.saturating_sub(1),
+            KeyCode::Down if show_help => help_scroll = help_scroll.saturating_add(1),
             KeyCode::Char('p') => panic!("UI thread panic, as asked"),
             KeyCode::Char('w') => {
                 let _ = thread::Builder::new()
                     .name("worker".into())
                     .spawn(|| panic!("worker panic, as asked"))?
                     .join();
+            }
+            // the list's keys, while the help isn't up to take them
+            _ if !show_help => {
+                let _ = cursor.nav(LIST_LEN).selectable(|i| !is_separator(i)).key(key);
             }
             _ => {}
         }
@@ -221,6 +238,28 @@ fn draw_modal(frame: &mut Frame, modal: &Modal) {
         }
         Modal::Form(form) => frame.render_widget(form, frame.area()),
     }
+}
+
+/// Only the rows in the cursor's window are formatted, as with a huge list.
+fn draw_list(frame: &mut Frame, area: Rect, cursor: &mut ListCursor) {
+    let block = Block::bordered().title(" ListCursor ");
+    let window = cursor.window(LIST_LEN, block.inner(area).height.into());
+    let title = format!(" rows {}–{} of {LIST_LEN} ", window.start + 1, window.end);
+    let items: Vec<ListItem> = window
+        .map(|i| match is_separator(i) {
+            true => ListItem::new(format!("── {i} ──")).dark_gray(),
+            false => ListItem::new(format!("row {i}")),
+        })
+        .collect();
+    let list = List::new(items)
+        .block(block.title_bottom(title))
+        .highlight_style(Style::new().reversed());
+    let mut state = ListState::default().with_selected(cursor.selected_in_window());
+    frame.render_stateful_widget(list, area, &mut state);
+}
+
+fn is_separator(i: usize) -> bool {
+    i.is_multiple_of(LIST_SEPARATOR_EVERY)
 }
 
 fn demo_form() -> Form {

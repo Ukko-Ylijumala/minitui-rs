@@ -48,6 +48,11 @@ Not a framework: there is no app trait and no run loop. Each app keeps its own e
     - the app's note ("resolving…", the last submit's result) below the fields; the validation error in place of the hint, cleared by the next change; `fail(field, error)` also focuses the field
     - fields by index with typed accessors (`text`, `checked`, `selected`, `editor_mut`); unfocused text fields show their start, cut with `…`
     - sized to its fields, centered, capped to the screen; fields that don't fit the height show a page at a time around the focus
+- **ListCursor**: the selection and scroll offset of a list or table, kept across frames
+    - `window(len, rows)` before rendering: clamps the selection, scrolls just enough to show it (the last page always full), returns the rows to format; `selected_in_window`, or `list_state` / `table_state` to render the whole list
+    - `nav(len).key(key)`: ↑ ↓ Home End, PgUp / PgDn by the rows of the last draw less one; modifier chords are left to the app; `Moved` / `Handled` / `Ignored`
+    - `nav(len).wrap()` wraps single steps around; `nav(len).selectable(|i| ..)` skips separators and headings
+    - `clamp(len)` after a delete; `reselect(found, len)` keeps the selection on its item across a refresh or a re-sort, and says when the item is gone
 - Popup titles are given bare (`"keys"`, `"destroy"`) and shown padded with a space on either side
 
 ## Installation
