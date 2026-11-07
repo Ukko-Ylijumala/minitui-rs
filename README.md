@@ -108,7 +108,7 @@ git = "https://github.com/Ukko-Ylijumala/minitui-rs"
 version = "0.1"
 ```
 
-Releases are tagged `vX.Y.Z`; use `tag = "v0.1.5"` instead of `version` to pin one exactly.
+Releases are tagged `vX.Y.Z`; use `tag = "v0.1.6"` instead of `version` to pin one exactly.
 
 Features: `log` adds `LogSink`, a backend for the `log` crate (`features = ["log"]`).
 
@@ -237,6 +237,10 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## Version History
 
+- 0.1.6: Tables, tabs and filters
+    - `ColumnTable`, `Column`, `Width`, `Sort` and `TableRow`, from the tables of zfs-browser, squawk, mping-rs, edge-xdp-flood and ztop: columns that fit or give way by priority, cells cut with an `…`, the sort column marked, rows formatted only in view
+    - `TabBar` and `tab_step`, from squawk's host tabs, narrowing to wiremeup's `‹ choice ›`
+    - `Filter`, `FilterBar` and `hbar`, first for wp-scanner's browser; `fit_line` and `Cut`, a styled line cut to fit
 - 0.1.5: Event loop, layout and test helpers
     - `Waker`, `Input`, `next_event` / `next_key`, `is_ctrl_c` and `DrawErrors`, from edge-xdp-flood's condvar waker, keyboard thread and draw-error streak, collector-status's wake channel and wiremeup's `next_key`
     - `Split` from zfs-browser's list / detail split, `Breadcrumb` from nft-browser's and zfs-browser's header line, `centered_rect` from squawk, nft-browser and zfs-browser
