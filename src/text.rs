@@ -9,7 +9,7 @@ an emoji takes two cells, a combining mark none. The per-app copies counted
 use std::borrow::Cow;
 use std::ops::Range;
 
-use ratatui::text::Text;
+use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Paragraph, Wrap};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
@@ -18,6 +18,18 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 static ELLIPSIS: &str = "…";
 /// Display width of [`ELLIPSIS`].
 const ELLIPSIS_W: usize = 1;
+
+/* ===== types ============================================================== */
+
+/// Which end of a text gives way when it doesn't fit: a name's end, a path's start.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Cut {
+    /// Keep the start, a trailing `…` ([`ellipsize_end`]).
+    #[default]
+    End,
+    /// Keep the end, a leading `…` ([`ellipsize_start`]).
+    Start,
+}
 
 /* ===== code =============================================================== */
 
@@ -82,6 +94,59 @@ pub fn ellipsize_end(s: &str, width: usize) -> Cow<'_, str> {
 }
 
 /**
+Fit a styled `line` into `width` columns as [`ellipsize_end`] /
+[`ellipsize_start`] fit a string: unchanged when it fits, otherwise cut
+at `cut`'s end with an `…` in the style of the span it cut into. The
+line's own style and alignment are kept.
+*/
+pub fn fit_line(line: Line<'_>, width: usize, cut: Cut) -> Line<'_> {
+    if line.width() <= width {
+        return line;
+    }
+    let Line { style, alignment, spans } = line;
+    let mut kept: Vec<Span> = Vec::with_capacity(spans.len() + 1);
+    if let Some(room) = width.checked_sub(ELLIPSIS_W) {
+        let mut used = 0;
+        let ordered: Box<dyn Iterator<Item = Span>> = match cut {
+            Cut::End => Box::new(spans.into_iter()),
+            Cut::Start => Box::new(spans.into_iter().rev()),
+        };
+        for span in ordered {
+            let w = span.width();
+            if used + w <= room {
+                used += w;
+                kept.push(span);
+                continue;
+            }
+            let content: &str = &span.content;
+            let part: &str = match cut {
+                Cut::End => {
+                    let end = fit_from(content.char_indices(), room - used)
+                        .map(|i| i + content[i..].chars().next().map_or(0, char::len_utf8))
+                        .unwrap_or(0);
+                    &content[..end]
+                }
+                Cut::Start => {
+                    let start = fit_from(content.char_indices().rev(), room - used).unwrap_or(content.len());
+                    &content[start..]
+                }
+            };
+            if !part.is_empty() {
+                kept.push(Span::styled(part.to_string(), span.style));
+            }
+            kept.push(Span::styled(ELLIPSIS, span.style));
+            break;
+        }
+        if cut == Cut::Start {
+            kept.reverse();
+        }
+    }
+    let mut out = Line::from(kept).style(style);
+    out.alignment = alignment;
+    out
+}
+
+/**
 Walk `chars` (in either direction) while their widths still fit in `room`;
 the byte offset of the last char taken, `None` if not even the first fits.
 A wide char that would overflow stops the walk, so the result may come out
@@ -105,6 +170,28 @@ fn fit_from(chars: impl Iterator<Item = (usize, char)>, room: usize) -> Option<u
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use ratatui::style::{Color, Style};
+
+    #[test]
+    fn styled_lines_fit_at_either_end() {
+        let red = Style::new().fg(Color::Red);
+        let line = || Line::from(vec![Span::raw("/home/"), Span::styled("u12", red), Span::raw("/public_html")]);
+        assert_eq!(fit_line(line(), 21, Cut::End), line(), "it fits");
+        let end = fit_line(line(), 10, Cut::End);
+        assert_eq!(end, Line::from(vec![Span::raw("/home/"), Span::styled("u12", red), Span::raw("…")]));
+        let start = fit_line(line(), 10, Cut::Start);
+        assert_eq!(start, Line::from(vec![Span::raw("…"), Span::raw("blic_html")]));
+        // the ellipsis takes the style of the span it cut into
+        let start = fit_line(line(), 15, Cut::Start);
+        assert_eq!(start.spans[..2], [Span::styled("…", red), Span::styled("12", red)]);
+        assert_eq!(start.width(), 15);
+        // wide characters never overflow; nothing fits in no width
+        assert_eq!(fit_line(Line::from("日本語のパス"), 6, Cut::End).width(), 5);
+        assert_eq!(fit_line(line(), 0, Cut::End).width(), 0);
+        // the line's alignment survives
+        assert_eq!(fit_line(line().right_aligned(), 8, Cut::End).alignment, Some(ratatui::layout::Alignment::Right));
+    }
 
     #[test]
     fn wrap_lines_counts_rows_like_the_renderer() {

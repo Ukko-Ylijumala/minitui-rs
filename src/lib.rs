@@ -43,6 +43,10 @@ and no run loop; each app keeps its own event loop and draws its own views.
   [`DrawErrors`]: event-loop pieces: a redraw asked for from any thread,
   the terminal read on its own thread so one wait covers keys and wakes,
   key releases skipped, and failed frames counted rather than fatal.
+- [`ColumnTable`], [`Column`], [`Sort`], [`TableRow`]: a table whose
+  columns fit the width, the least important left out when narrow, cells
+  cut with an `…`, the sort column marked; [`TabBar`]: a row of tabs that
+  becomes `‹ tab ›` when narrow; [`fit_line`]: a styled line cut to fit.
 - [`centered_rect`], [`Split`], [`Breadcrumb`]: a popup's place, two panes
   whose share Ctrl-←/→ moves, a header of the app's name and where the
   user is.
@@ -63,6 +67,8 @@ mod popup;
 mod scroll;
 mod signals;
 mod statusbar;
+mod table;
+mod tabs;
 mod terminal;
 mod testing;
 mod text;
@@ -84,12 +90,14 @@ pub use popup::HelpPopup;
 pub use scroll::{CanvasView, Scroll, TextView};
 pub use signals::{Signal, SignalBuilder, SignalHandler};
 pub use statusbar::{KeyHints, PROMPT_TTL, Prompt, Reply, StatusBar, Toast, pill};
+pub use table::{Column, ColumnTable, Sort, TableRow, Width};
+pub use tabs::{TabBar, tab_step};
 pub use terminal::{
     GuardBuilder, HeldPanic, PanicPolicy, TerminalGuard, Tui, eprintln_safe, held_panics,
     restore_terminal, take_held_panics, tui_active,
 };
 pub use testing::{buffer_rows, buffer_text, render_buffer};
-pub use text::{ellipsize_end, ellipsize_start, range_label, wrap_lines};
+pub use text::{Cut, ellipsize_end, ellipsize_start, fit_line, range_label, wrap_lines};
 
 /**
 `eprintln!` that stays silent while a [`TerminalGuard`] owns the terminal

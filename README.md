@@ -74,6 +74,13 @@ Not a framework: there is no app trait and no run loop. Each app keeps its own e
     - `Trace`: a line of `(seconds before now, value)` points, borrowed or owned, or of samples taken at a fixed interval; a NaN value is a gap rather than a line bridging it, and a lone point between gaps still shows
     - `TimeChart`: traces from `-span` (or the oldest point) to now; y from 0, a set floor or the lowest value in view, up to a set top or the peak in view with head room, optionally rounded up to a nice 1/2/5 figure (`nice_ceil`); labelled at the bottom, middle and top, x as `-1m`, `-30s`, `now`, both formats replaceable; the traces' names and latest values in the top border instead of ratatui's legend box
     - `braille_spark`: a sparkline in a string, two values a cell, a trickle always visible
+- **ColumnTable**: a table whose columns fit the width
+    - `Column`s with a `Width` (`Fixed`, `Fit { min, max }` to the header and the rows in view, `Fill { min }` sharing what is left) and a priority: when they don't all fit, the lowest go first (the rightmost among equals), and the bottom border says how many columns are hidden
+    - each cell a styled `Line`, cut to its column with an `…` at its end or, for paths, its start (`Cut::Start`); `right()` for numbers, header too
+    - rows formatted only for the rows in view, from a `ListCursor`; `TableRow::heading` for a line across the columns (a group's heading), `style` for a whole row; `rows a–b of N` in the bottom border when they don't all show
+    - `Sort`: the column and the direction, marked ▲ / ▼ in the header (the header keeps room for the marker, so the columns don't move with the sort); `step` to the next sortable column in its first direction (`descending_first` for counts), `reverse`, and `apply` / `cmp_opt` to compare (no value last either way). The keys are the app's
+- **TabBar**: a row of tabs, each the app's own line (a count or a badge in its own style), the selected one highlighted, ` │ ` between; too narrow for them all, the selected one alone as `‹ plugins 24 › 2/7`; `tab_step` moves through them wrapping
+- **fit_line**: a styled `Line` cut to a width at either end (`Cut`), as `ellipsize_end` / `ellipsize_start` cut a string
 - **Event loop**: pieces, not a loop
     - `Waker`: any thread (a data thread, the signal callback) asks the render loop for a frame now; the loop waits on it with its heartbeat as the timeout, and a burst of wakes makes one frame
     - `Input`: the terminal read on a thread of its own, its events handed over through the `Waker`, so one wait covers keys, wakes and the heartbeat; napping when there is no usable terminal instead of spinning a core
