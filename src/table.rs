@@ -223,6 +223,11 @@ impl Sort {
         Self { column, descending }
     }
 
+    /// Sorted by the first sortable column (the first column when none is), in its first direction.
+    pub fn first(columns: &[Column]) -> Self {
+        Self::by(columns, columns.iter().position(|c| c.sortable).unwrap_or(0))
+    }
+
     /// To the next (`delta` > 0) or previous sortable column, wrapping, in its first direction.
     pub fn step(&mut self, columns: &[Column], delta: isize) {
         let n = columns.len() as isize;
@@ -617,6 +622,8 @@ mod tests {
         columns[2] = columns[2].clone().sortable(false);
         let mut sort = Sort::by(&columns, 0);
         assert_eq!(sort, Sort::new(0, false));
+        let marked = [Column::new("", Width::Fixed(1)).sortable(false), Column::new("n", Width::Fixed(3)).descending_first()];
+        assert_eq!(Sort::first(&marked), Sort::new(1, true), "past a column that isn't sortable");
         sort.step(&columns, 1);
         assert_eq!(sort, Sort::new(1, true), "a count starts largest first");
         sort.step(&columns, 1);
