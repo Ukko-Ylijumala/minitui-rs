@@ -31,6 +31,10 @@ use crate::logview::{SECS_PER_DAY, SECS_PER_HOUR, SECS_PER_MIN};
 
 /* ===== consts and statics ================================================= */
 
+/// [`hbar`]'s full cell, and its partial ones by eighths (1/8 to 7/8).
+static FULL_BLOCK: &str = "█";
+const EIGHTHS: [char; 7] = ['▏', '▎', '▍', '▌', '▋', '▊', '▉'];
+
 /// Head room over the peak by default, so the line clears the top border.
 const DEFAULT_HEADROOM: f64 = 1.1;
 /// The multiples of a power of ten that [`nice_ceil`] rounds up to.
@@ -360,6 +364,25 @@ impl Widget for TimeChart<'_> {
 /* ===== free functions ===================================================== */
 
 /**
+`value` of `max` as a horizontal bar up to `width` cells, in eighth
+blocks: `██▋`. A value above zero always shows at least `▏`, so a few
+among many still show; none for zero, a NaN or a `max` of zero or less.
+For a distribution's rows, each bar beside its count.
+*/
+pub fn hbar(value: f64, max: f64, width: usize) -> String {
+    if !(value > 0.0 && max > 0.0) || width == 0 {
+        return String::new();
+    }
+    let eighths: usize = ((value.min(max) / max) * (width * 8) as f64).round() as usize;
+    let eighths = eighths.max(1);
+    let mut bar: String = FULL_BLOCK.repeat(eighths / 8);
+    if !eighths.is_multiple_of(8) {
+        bar.push(EIGHTHS[eighths % 8 - 1]);
+    }
+    bar
+}
+
+/**
 `values` as a sparkline `cells` wide in braille: two values a cell, each a
 bar of up to four dots, scaled to `max` (the largest value shown when
 `None`). The newest value is the rightmost; with fewer values than fit,
@@ -448,6 +471,18 @@ fn span_label(d: Duration) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn horizontal_bars_by_eighths() {
+        assert_eq!(hbar(10.0, 10.0, 4), "████");
+        assert_eq!(hbar(5.0, 10.0, 4), "██");
+        assert_eq!(hbar(21.0, 160.0, 20), "██▋");
+        assert_eq!(hbar(1.0, 1_000.0, 10), "▏", "a few still show");
+        assert_eq!(hbar(20.0, 10.0, 3), "███", "capped at the width");
+        assert_eq!(hbar(0.0, 10.0, 4), "");
+        assert_eq!(hbar(f64::NAN, 10.0, 4), "");
+        assert_eq!(hbar(3.0, 0.0, 4), "");
+    }
 
     use crate::{buffer_rows, render_buffer};
 

@@ -80,6 +80,10 @@ Not a framework: there is no app trait and no run loop. Each app keeps its own e
     - rows formatted only for the rows in view, from a `ListCursor`; `TableRow::heading` for a line across the columns (a group's heading), `style` for a whole row; `rows a–b of N` in the bottom border when they don't all show
     - `Sort`: the column and the direction, marked ▲ / ▼ in the header (the header keeps room for the marker, so the columns don't move with the sort); `first` for the first sortable column, `step` to the next one in its first direction (`descending_first` for counts), `reverse`, and `apply` / `cmp_opt` to compare (no value last either way). The keys are the app's
 - **TabBar**: a row of tabs, each the app's own line (a count or a badge in its own style), the selected one highlighted, ` │ ` between; too narrow for them all, the selected one alone as `‹ plugins 24 › 2/7`; `tab_step` moves through them wrapping
+- **Filter / FilterBar**: a list's filter typed as you go
+    - `Filter`: the text in a `LineEditor`, and whether it is being typed; `start` on the app's key (`/`), Enter keeps the filter (`Done`), Esc drops it (`Cleared`), an edit is `Changed`; keys that aren't editing keys (↑ ↓ PgUp PgDn) come back `Ignored`, so the list moves while the filter is typed. What the text matches stays with the app
+    - `FilterBar`: `filter > text` in one row (the cursor cell while typing), `shown of total` on the right where the whole text leaves room; nothing for a filter neither typed nor set
+- **hbar**: `value` of `max` as a horizontal bar in eighth blocks (`██▋`), a value above zero always at least `▏`: a distribution's rows
 - **fit_line**: a styled `Line` cut to a width at either end (`Cut`), as `ellipsize_end` / `ellipsize_start` cut a string
 - **Event loop**: pieces, not a loop
     - `Waker`: any thread (a data thread, the signal callback) asks the render loop for a frame now; the loop waits on it with its heartbeat as the timeout, and a burst of wakes makes one frame

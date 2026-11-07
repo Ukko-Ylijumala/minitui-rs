@@ -47,6 +47,9 @@ and no run loop; each app keeps its own event loop and draws its own views.
   columns fit the width, the least important left out when narrow, cells
   cut with an `…`, the sort column marked; [`TabBar`]: a row of tabs that
   becomes `‹ tab ›` when narrow; [`fit_line`]: a styled line cut to fit.
+- [`Filter`], [`FilterBar`]: a list's filter typed as you go, Enter to
+  keep it and Esc to drop it, the list's keys passed through; [`hbar`]:
+  a horizontal bar in eighth blocks.
 - [`centered_rect`], [`Split`], [`Breadcrumb`]: a popup's place, two panes
   whose share Ctrl-←/→ moves, a header of the app's name and where the
   user is.
@@ -59,6 +62,7 @@ mod chart;
 mod dialog;
 mod editor;
 mod events;
+mod filter;
 mod form;
 mod layout;
 mod list;
@@ -74,12 +78,13 @@ mod testing;
 mod text;
 
 pub use breadcrumb::Breadcrumb;
-pub use chart::{TimeChart, Trace, braille_spark, nice_ceil};
+pub use chart::{TimeChart, Trace, braille_spark, hbar, nice_ceil};
 pub use dialog::{Answer, ConfirmDialog, InputDialog, confirm_answer};
 pub use editor::{EditOutcome, EditorStyle, LineEditor};
 pub use events::{
     DrawErrors, DrawReport, Input, Waker, is_ctrl_c, next_event, next_key,
 };
+pub use filter::{Filter, FilterBar, FilterOutcome};
 pub use form::{Field, Focus, Form, FormAction};
 pub use layout::{Split, centered_rect};
 pub use list::{ListCursor, Nav, NavOutcome};
