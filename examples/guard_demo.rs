@@ -17,7 +17,9 @@ both after a y/N [`Prompt`] in the [`StatusBar`] (it lapses in 5 s, and
 results show there as a [`Toast`]). Shift with ↑ ↓ Home End PgUp PgDn
 scrolls the [`LogView`] beside the list, which a ticker thread feeds.
 Under it a [`TimeChart`] draws two made-up signals, one with a gap every
-20 s; the newest of it is a [`braille_spark`] in the footer.
+20 s; the newest of it is a [`braille_spark`] in the footer. Keys come in
+through an [`Input`] thread; it, the ticker and the signal callback wake
+the loop through a [`Waker`], and Ctrl-C asks to quit like `q`.
 The shell must come back clean after each, with the panic report on it.
 In `held` mode a worker panic leaves the TUI up and shows the held panic.
 The log's first and last lines echo on the shell, before the TUI comes up
@@ -39,20 +41,21 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{
-    self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags,
+    Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags,
 };
 use minitui::{
-    Answer, ConfirmDialog, Echo, EditOutcome, Field, Form, FormAction, HelpPopup, InputDialog,
-    KeyHints, LineEditor, ListCursor, LogBuffer, LogLevel, LogScroll, LogView, NavOutcome,
-    PanicPolicy, Prompt, Reply, Scroll, SignalHandler, Stamp, StatusBar, TerminalGuard, TextView,
-    TimeChart, Toast, Trace, braille_spark, confirm_answer, eprintln_safe, held_panics, pill,
-    range_label, take_held_panics, tui_active,
+    Answer, ConfirmDialog, DrawErrors, Echo, EditOutcome, Field, Form, FormAction, HelpPopup,
+    Input, InputDialog, KeyHints, LineEditor, ListCursor, LogBuffer, LogLevel, LogScroll, LogView,
+    NavOutcome, PanicPolicy, Prompt, Reply, Scroll, SignalHandler, Stamp, StatusBar,
+    TerminalGuard, TextView, TimeChart, Toast, Trace, Waker, braille_spark, confirm_answer,
+    eprintln_safe, held_panics, is_ctrl_c, pill, range_label, take_held_panics, tui_active,
 };
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style, Stylize};
 use ratatui::widgets::{Block, Clear, List, ListItem, ListState, Paragraph};
 
+/// The loop's heartbeat: it draws at least this often, and samples the chart.
 const TICK: Duration = Duration::from_millis(100);
 /// The footer's legend; what doesn't fit drops out from the end.
 static HINTS: &[(&str, &str)] = &[
@@ -81,7 +84,7 @@ static HELP_ROWS: &[(&str, &str)] = &[
     ("PgUp PgDn", "else move in the list"),
     ("⇧ + those", "scroll the log; ⇧End follows it again"),
     ("c", "clear the log (asks y/N)"),
-    ("q", "quit (asks y/N)"),
+    ("q / Ctrl-C", "quit (asks y/N)"),
 ];
 static HELP_FOOTER: &str = "kill <pid> quits through the signal callback";
 static INPUT_PROMPT: &str = "type something\n(readline keys: Ctrl-A/E/U/K/W, Ctrl-←/→)";
@@ -170,13 +173,17 @@ fn main() -> Result<()> {
         false => PanicPolicy::Always,
     };
     let bare = args.iter().any(|a| a == "bare");
+    // the loop sleeps on this between frames; whatever changes the screen wakes it
+    let waker = Waker::new();
     // the signal handler first: a signal from here on can't strand the terminal
+    let wake = waker.clone();
     match bare {
         true => SignalHandler::install()?,
         false => SignalHandler::builder()
-            .on_signal(|sig| {
+            .on_signal(move |sig| {
                 eprintln_safe!("this line must not appear: {sig} arrived while the TUI is up");
                 QUIT.store(true, Ordering::Release);
+                wake.wake();
             })
             .install()?,
     }
@@ -198,7 +205,9 @@ fn main() -> Result<()> {
     let mut guard = builder.build()?;
     eprintln_safe!("this line must not appear: the TUI is up");
     log.notice("the TUI is up: this line must not appear on the shell");
-    spawn_ticker(log.clone())?;
+    let input = Input::spawn(&waker)?;
+    spawn_ticker(log.clone(), waker.clone())?;
+    let mut draw_errors = DrawErrors::new();
 
     let (mut show_help, mut help_scroll) = (false, Scroll::new());
     let mut cursor = ListCursor::new();
@@ -224,7 +233,7 @@ fn main() -> Result<()> {
             Some(p) => format!("{head}\n\nheld: {}", p.message),
             None => head,
         };
-        guard.term.draw(|frame| {
+        let drawn = guard.term.draw(|frame| {
             let [head, list, footer] = Layout::vertical([
                 Constraint::Length(HEAD_ROWS),
                 Constraint::Fill(1),
@@ -274,11 +283,15 @@ fn main() -> Result<()> {
                 frame.render_stateful_widget(help, frame.area(), &mut help_scroll);
             }
             draw_modal(frame, &mut modal);
-        })?;
-        if !event::poll(TICK)? {
-            continue;
+        });
+        if let Some(report) = draw_errors.record(drawn)? {
+            log.push(report.level(), report.to_string());
         }
-        let key = match event::read()? {
+        // a key, a wake (the ticker, a signal) or the next sample: draw again
+        let Some(event) = input.next(TICK) else {
+            continue;
+        };
+        let key = match event {
             Event::Key(key) => key,
             Event::Paste(s) => {
                 match &mut modal {
@@ -326,6 +339,11 @@ fn main() -> Result<()> {
         if key.kind != KeyEventKind::Press {
             continue;
         }
+        // raw mode: Ctrl-C is a key, and asks like `q` (its code is `c` too)
+        if is_ctrl_c(key) {
+            prompt.ask(Ask::Quit, "quit the demo?");
+            continue;
+        }
         match key.code {
             KeyCode::Char('q') => prompt.ask(Ask::Quit, "quit the demo?"),
             KeyCode::Char('c') => prompt.ask(Ask::ClearLog, "clear the log?"),
@@ -351,6 +369,7 @@ fn main() -> Result<()> {
             _ => _ = cursor.nav(LIST_LEN).selectable(|i| !is_separator(i)).key(key),
         }
     }
+    drop(input);
     drop(guard);
     eprintln_safe!("guard dropped: this line must appear");
     log.notice("guard_demo done: this line must appear on the shell");
@@ -406,14 +425,15 @@ fn signals(n: u64) -> (f64, f64) {
     (slow, FAST_MID + FAST_AMPLITUDE * (t * TAU / FAST_PERIOD).sin())
 }
 
-/// A thread adding a message to `log` every [`LOG_EVERY`] until the demo quits.
-fn spawn_ticker(log: Arc<LogBuffer>) -> Result<()> {
+/// A thread adding a message to `log` every [`LOG_EVERY`], waking the loop, until the demo quits.
+fn spawn_ticker(log: Arc<LogBuffer>, waker: Waker) -> Result<()> {
     thread::Builder::new().name("ticker".into()).spawn(move || {
         for (n, level) in (1..).zip(TICKER_LEVELS.iter().cycle()) {
             if QUIT.load(Ordering::Acquire) {
                 break;
             }
             log.push(*level, format!("tick {n}: a {level} message from the ticker thread"));
+            waker.wake();
             thread::sleep(LOG_EVERY);
         }
     })?;

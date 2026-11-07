@@ -74,6 +74,12 @@ Not a framework: there is no app trait and no run loop. Each app keeps its own e
     - `Trace`: a line of `(seconds before now, value)` points, borrowed or owned, or of samples taken at a fixed interval; a NaN value is a gap rather than a line bridging it, and a lone point between gaps still shows
     - `TimeChart`: traces from `-span` (or the oldest point) to now; y from 0, a set floor or the lowest value in view, up to a set top or the peak in view with head room, optionally rounded up to a nice 1/2/5 figure (`nice_ceil`); labelled at the bottom, middle and top, x as `-1m`, `-30s`, `now`, both formats replaceable; the traces' names and latest values in the top border instead of ratatui's legend box
     - `braille_spark`: a sparkline in a string, two values a cell, a trickle always visible
+- **Event loop**: pieces, not a loop
+    - `Waker`: any thread (a data thread, the signal callback) asks the render loop for a frame now; the loop waits on it with its heartbeat as the timeout, and a burst of wakes makes one frame
+    - `Input`: the terminal read on a thread of its own, its events handed over through the `Waker`, so one wait covers keys, wakes and the heartbeat; napping when there is no usable terminal instead of spinning a core
+    - `next_event` / `next_key`: poll and read for a single-threaded loop, skipping key releases but keeping a held key's repeats
+    - `is_ctrl_c`: raw mode delivers Ctrl-C as a key
+    - `DrawErrors`: a frame that fails to reach the terminal is counted rather than ending the run; reports for the first failure, every 30th and the recovery, ready for a `LogBuffer`; optionally gives up after so many in a row
 - Popup titles are given bare (`"keys"`, `"destroy"`) and shown padded with a space on either side
 
 ## Installation

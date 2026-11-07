@@ -37,12 +37,16 @@ and no run loop; each app keeps its own event loop and draws its own views.
   status either side, the key legend fitted between them hint by hint, a
   one-shot message, and an inline y/N question that lapses unanswered.- [`TimeChart`], [`Trace`], [`braille_spark`]: time series as braille
   lines up to now, gaps kept, scaled to what is in view, the latest values
-  in the border; and a sparkline in a string.
+  in the border; and a sparkline in a string.- [`Waker`], [`Input`], [`next_event`], [`next_key`], [`is_ctrl_c`],
+  [`DrawErrors`]: event-loop pieces: a redraw asked for from any thread,
+  the terminal read on its own thread so one wait covers keys and wakes,
+  key releases skipped, and failed frames counted rather than fatal.
 */
 
 mod chart;
 mod dialog;
 mod editor;
+mod events;
 mod form;
 mod list;
 mod logview;
@@ -56,6 +60,9 @@ mod text;
 pub use chart::{TimeChart, Trace, braille_spark, nice_ceil};
 pub use dialog::{Answer, ConfirmDialog, InputDialog, confirm_answer};
 pub use editor::{EditOutcome, EditorStyle, LineEditor};
+pub use events::{
+    DrawErrors, DrawReport, Input, Waker, is_ctrl_c, next_event, next_key,
+};
 pub use form::{Field, Focus, Form, FormAction};
 pub use list::{ListCursor, Nav, NavOutcome};
 #[cfg(feature = "log")]
