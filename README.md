@@ -97,7 +97,7 @@ git = "https://github.com/Ukko-Ylijumala/minitui-rs"
 version = "0.1"
 ```
 
-Releases are tagged `vX.Y.Z`; use `tag = "v0.1.4"` instead of `version` to pin one exactly.
+Releases are tagged `vX.Y.Z`; use `tag = "v0.1.5"` instead of `version` to pin one exactly.
 
 Features: `log` adds `LogSink`, a backend for the `log` crate (`features = ["log"]`).
 
@@ -226,6 +226,10 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## Version History
 
+- 0.1.5: Event loop, layout and test helpers
+    - `Waker`, `Input`, `next_event` / `next_key`, `is_ctrl_c` and `DrawErrors`, from edge-xdp-flood's condvar waker, keyboard thread and draw-error streak, collector-status's wake channel and wiremeup's `next_key`
+    - `Split` from zfs-browser's list / detail split, `Breadcrumb` from nft-browser's and zfs-browser's header line, `centered_rect` from squawk, nft-browser and zfs-browser
+    - `render_buffer`, `buffer_rows` and `buffer_text`, from the `TestBackend` text readers in nft-browser and zfs-browser
 - 0.1.4: Log pane, status bar and charts
     - `LogBuffer`, `LogView` and `LogScroll`, merged from edge-xdp-flood's EVENTS pane and mping-rs's log popup; `LogSink` (feature `log`) from edge-xdp-flood's `log` backend
     - `StatusBar`, `KeyHints`, `Toast`, `Prompt` and `pill`, from the footers and status lines of all the apps; the y/N prompt from edge-xdp-flood's confirm bar and squawk's prompt
