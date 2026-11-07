@@ -506,13 +506,13 @@ mod tests {
     use crossterm::event::KeyCode;
     use crossterm::event::KeyModifiers;
 
+    use crate::{buffer_text, render_buffer};
+
     static HINTS: &[(&str, &str)] = &[("h", "help"), ("↑↓", "select"), ("q", "quit")];
     const LONG_AGO: Duration = Duration::from_secs(3600);
 
     fn screen(widget: impl Widget, w: u16) -> String {
-        let mut buf = Buffer::empty(Rect::new(0, 0, w, 1));
-        widget.render(buf.area, &mut buf);
-        buf.content.iter().map(|c| c.symbol()).collect()
+        buffer_text(&render_buffer(widget, w, 1))
     }
 
     fn press(code: KeyCode) -> KeyEvent {
@@ -584,10 +584,8 @@ mod tests {
             .left("left")
             .hints(KeyHints::new(HINTS))
             .prompt(prompt.line());
-        let mut buf = Buffer::empty(Rect::new(0, 0, 16, 1));
-        bar.render(buf.area, &mut buf);
-        let text: String = buf.content.iter().map(|c| c.symbol()).collect();
-        assert_eq!(text, " quit? y/N      ");
+        let buf = render_buffer(bar, 16, 1);
+        assert_eq!(buffer_text(&buf), " quit? y/N      ");
         assert_eq!(
             buf.content[15].bg,
             Color::Yellow,

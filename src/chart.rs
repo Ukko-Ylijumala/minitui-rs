@@ -449,14 +449,12 @@ fn span_label(d: Duration) -> String {
 mod tests {
     use super::*;
 
+    use crate::{buffer_rows, render_buffer};
+
     const SECOND: Duration = Duration::from_secs(1);
 
     fn screen(chart: TimeChart, w: u16, h: u16) -> Vec<String> {
-        let mut buf = Buffer::empty(Rect::new(0, 0, w, h));
-        chart.render(buf.area, &mut buf);
-        (0..h)
-            .map(|y| (0..w).map(|x| buf[(x, y)].symbol()).collect())
-            .collect()
+        buffer_rows(&render_buffer(chart, w, h))
     }
 
     fn braille_cells(rows: &[String]) -> usize {

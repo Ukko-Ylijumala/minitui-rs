@@ -21,8 +21,8 @@ use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Clear, Paragraph, Widget, Wrap};
 
-use crate::popup::{centered, chrome, popup_block, to_u16};
-use crate::{LineEditor, wrap_lines};
+use crate::popup::{chrome, popup_block, to_u16};
+use crate::{LineEditor, centered_rect, wrap_lines};
 
 /* ===== consts and statics ================================================= */
 
@@ -184,7 +184,7 @@ impl<'a> InputDialog<'a> {
             .min(outer.width);
         let inner_w = width.saturating_sub(chrome_w);
         let height = wrap_lines(self.body(inner_w), inner_w).saturating_add(chrome_h);
-        centered(outer, width, height)
+        centered_rect(outer, width, height)
     }
 
     /// Prompt, editor, checkbox, footer: the dialog's lines for an inner width.
@@ -280,7 +280,7 @@ impl<'a> ConfirmDialog<'a> {
             .min(outer.width);
         let inner_w = width.saturating_sub(chrome_w);
         let height = wrap_lines(body, inner_w).saturating_add(chrome_h);
-        centered(outer, width, height)
+        centered_rect(outer, width, height)
     }
 
     /// Message, command, hint, a blank line between each.
@@ -338,14 +338,10 @@ fn render_popup(body: Paragraph, area: Rect, buf: &mut Buffer) {
 mod tests {
     use super::*;
 
+    use crate::{buffer_text, render_buffer};
+
     fn screen(widget: impl Widget, w: u16, h: u16) -> String {
-        let area = Rect::new(0, 0, w, h);
-        let mut buf = Buffer::empty(area);
-        widget.render(area, &mut buf);
-        (0..h)
-            .map(|y| (0..w).map(|x| buf[(x, y)].symbol()).collect::<String>())
-            .collect::<Vec<_>>()
-            .join("\n")
+        buffer_text(&render_buffer(widget, w, h))
     }
 
     fn key(code: KeyCode) -> KeyEvent {

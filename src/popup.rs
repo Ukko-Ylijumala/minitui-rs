@@ -13,14 +13,14 @@ titles) instead of a hand-counted `+ 4`.
 */
 
 use ratatui::buffer::Buffer;
-use ratatui::layout::{Constraint, Rect};
+use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Clear, Padding, Paragraph, StatefulWidget, Widget};
 use unicode_width::UnicodeWidthStr;
 
 use crate::scroll::indicator_width;
-use crate::{Scroll, TextView};
+use crate::{Scroll, TextView, centered_rect};
 
 /* ===== consts and statics ================================================= */
 
@@ -143,7 +143,7 @@ impl<'a> HelpPopup<'a> {
     /// Where the popup lands when rendered into `outer`.
     pub fn area(&self, outer: Rect) -> Rect {
         let (w, h) = self.size();
-        centered(outer, w, h)
+        centered_rect(outer, w, h)
     }
 
     /**
@@ -198,7 +198,7 @@ impl StatefulWidget for HelpPopup<'_> {
         let mut popup = self.area(area);
         if self.overflow(area) > 0 {
             let w = to_u16(indicator_width(self.text.height())).max(popup.width);
-            popup = centered(area, w, popup.height);
+            popup = centered_rect(area, w, popup.height);
         }
         let block = self.make_block();
         Clear.render(popup, buf);
@@ -220,14 +220,6 @@ pub(crate) fn popup_block<'a>(title: impl Into<Line<'a>>) -> Block<'a> {
 pub(crate) fn chrome(block: &Block) -> (u16, u16) {
     let inner = block.inner(PROBE);
     (PROBE.width - inner.width, PROBE.height - inner.height)
-}
-
-/// A `w` × `h` area centered in `outer`, capped to it.
-pub(crate) fn centered(outer: Rect, w: u16, h: u16) -> Rect {
-    outer.centered(
-        Constraint::Length(w.min(outer.width)),
-        Constraint::Length(h.min(outer.height)),
-    )
 }
 
 /// A measured size (`usize`) as a `u16` dimension, saturating.
@@ -252,15 +244,15 @@ mod tests {
     use ratatui::buffer::Cell;
     use ratatui::style::{Color, Stylize};
 
+    use crate::buffer_rows;
+
     static TEXT: &str = "  q    quit\n  h    this help";
 
     fn render(popup: HelpPopup, w: u16, h: u16) -> Vec<String> {
         let area = Rect::new(0, 0, w, h);
         let mut buf = Buffer::filled(area, Cell::new("x"));
         Widget::render(popup, area, &mut buf);
-        (0..h)
-            .map(|y| (0..w).map(|x| buf[(x, y)].symbol().to_string()).collect())
-            .collect()
+        buffer_rows(&buf)
     }
 
     #[test]
@@ -358,7 +350,8 @@ mod tests {
         scroll.set_offset(99);
         StatefulWidget::render(HelpPopup::new(text), area, &mut buf, &mut scroll);
         assert_eq!(scroll.offset(), 12, "the last full page");
-        let row = |y| (0..30).map(|x| buf[(x, y)].symbol()).collect::<String>();
+        let rows = buffer_rows(&buf);
+        let row = |y: usize| &rows[y];
         assert!(row(8).contains("line 20"));
         assert!(row(9).contains(" lines 13–20 of 20 "), "{}", row(9));
     }

@@ -436,6 +436,8 @@ impl Chrome<'_> {
 mod tests {
     use super::*;
 
+    use crate::buffer_rows;
+
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::from(code)
     }
@@ -446,13 +448,6 @@ mod tests {
         s.set_offset(offset);
         s.window(100, 10);
         s
-    }
-
-    fn rows(buf: &Buffer) -> Vec<String> {
-        let a = buf.area;
-        (a.y..a.bottom())
-            .map(|y| (a.x..a.right()).map(|x| buf[(x, y)].symbol()).collect())
-            .collect()
     }
 
     #[test]
@@ -522,7 +517,7 @@ mod tests {
         TextView::new(text)
             .block(Block::bordered())
             .render(buf.area, &mut buf, &mut s);
-        let rows = rows(&buf);
+        let rows = buffer_rows(&buf);
         assert!(rows[1].starts_with("│l4 "), "{rows:?}");
         assert!(rows[5].starts_with("│l8 "), "{rows:?}");
         assert!(rows[6].contains(" lines 4–8 of 20 "), "{rows:?}");
@@ -538,7 +533,7 @@ mod tests {
             .wrap(true)
             .render(buf.area, &mut buf, &mut s);
         assert_eq!(s.len(), 6);
-        assert_eq!(rows(&buf), ["dddd ", "eeee "]);
+        assert_eq!(buffer_rows(&buf), ["dddd ", "eeee "]);
     }
 
     #[test]
@@ -555,6 +550,6 @@ mod tests {
             .indicator(None)
             .render(buf.area, &mut buf, &mut s);
         assert_eq!(s.offset(), 8);
-        assert_eq!(rows(&buf), ["┌───┐", "│r8 │", "│r9 │", "└───┘"]);
+        assert_eq!(buffer_rows(&buf), ["┌───┐", "│r8 │", "│r9 │", "└───┘"]);
     }
 }

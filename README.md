@@ -80,6 +80,11 @@ Not a framework: there is no app trait and no run loop. Each app keeps its own e
     - `next_event` / `next_key`: poll and read for a single-threaded loop, skipping key releases but keeping a held key's repeats
     - `is_ctrl_c`: raw mode delivers Ctrl-C as a key
     - `DrawErrors`: a frame that fails to reach the terminal is counted rather than ending the run; reports for the first failure, every 30th and the recovery, ready for a `LogBuffer`; optionally gives up after so many in a row
+- **Layout**
+    - `centered_rect`: an area of a given size centered in another, capped to it
+    - `Split`: two panes side by side (or one above the other), the first one's share in percent moved a step at a time by Ctrl-← / Ctrl-→ (Ctrl-↑ / Ctrl-↓) within bounds; optionally neither pane smaller than so many cells while there is room for both; an app with several kinds of view keeps one for each, so each keeps the share the user gave it
+    - `Breadcrumb`: a header row: the app's name as a badge, then the trail cut from its start so its most specific end stays in view; `leaf()` is the last segment, for the view's title
+- **Testing**: `render_buffer` draws a widget on a buffer of a given size; `buffer_rows` / `buffer_text` read a buffer (that one, or a `TestBackend`'s) back as text, skipping the cell a wide character hides so a row reads the way it shows
 - Popup titles are given bare (`"keys"`, `"destroy"`) and shown padded with a space on either side
 
 ## Installation

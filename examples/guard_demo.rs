@@ -19,7 +19,9 @@ scrolls the [`LogView`] beside the list, which a ticker thread feeds.
 Under it a [`TimeChart`] draws two made-up signals, one with a gap every
 20 s; the newest of it is a [`braille_spark`] in the footer. Keys come in
 through an [`Input`] thread; it, the ticker and the signal callback wake
-the loop through a [`Waker`], and Ctrl-C asks to quit like `q`.
+the loop through a [`Waker`], and Ctrl-C asks to quit like `q`. Ctrl-←/→
+move the [`Split`] between the list and the log; the [`Breadcrumb`] on top
+shows the selected row.
 The shell must come back clean after each, with the panic report on it.
 In `held` mode a worker panic leaves the TUI up and shows the held panic.
 The log's first and last lines echo on the shell, before the TUI comes up
@@ -44,10 +46,11 @@ use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags,
 };
 use minitui::{
-    Answer, ConfirmDialog, DrawErrors, Echo, EditOutcome, Field, Form, FormAction, HelpPopup,
-    Input, InputDialog, KeyHints, LineEditor, ListCursor, LogBuffer, LogLevel, LogScroll, LogView,
-    NavOutcome, PanicPolicy, Prompt, Reply, Scroll, SignalHandler, Stamp, StatusBar,
-    TerminalGuard, TextView, TimeChart, Toast, Trace, Waker, braille_spark, confirm_answer,
+    Answer, Breadcrumb, ConfirmDialog, DrawErrors, Echo, EditOutcome, Field, Form, FormAction,
+    HelpPopup, Input, InputDialog, KeyHints, LineEditor, ListCursor, LogBuffer, LogLevel,
+    LogScroll, LogView, NavOutcome, PanicPolicy, Prompt, Reply, Scroll, SignalHandler, Split,
+    Stamp, StatusBar, TerminalGuard, TextView, TimeChart, Toast, Trace, Waker, braille_spark,
+    confirm_answer,
     eprintln_safe, held_panics, is_ctrl_c, pill, range_label, take_held_panics, tui_active,
 };
 use ratatui::Frame;
@@ -66,6 +69,7 @@ static HINTS: &[(&str, &str)] = &[
     ("v", "view"),
     ("c", "clear log"),
     ("⇧↑↓", "scroll log"),
+    ("^←→", "split"),
     ("p/w", "panic"),
 ];
 /// Key, what it does; an empty key continues the row above.
@@ -83,6 +87,7 @@ static HELP_ROWS: &[(&str, &str)] = &[
     ("↑ ↓ Home End", "scroll this help, when it doesn't fit;"),
     ("PgUp PgDn", "else move in the list"),
     ("⇧ + those", "scroll the log; ⇧End follows it again"),
+    ("Ctrl-← →", "move the split between the list and the log"),
     ("c", "clear the log (asks y/N)"),
     ("q / Ctrl-C", "quit (asks y/N)"),
 ];
@@ -100,9 +105,14 @@ const FORM_FAMILY: usize = 3;
 /// Rows in the demo list; every [`LIST_SEPARATOR_EVERY`]th can't be selected.
 const LIST_LEN: usize = 200;
 const LIST_SEPARATOR_EVERY: usize = 10;
-/// Rows of the text above the list, borders included, and of the footer.
+/// Rows of the breadcrumb, of the text above the list (borders included)
+/// and of the footer.
+const CRUMB_ROWS: u16 = 1;
 const HEAD_ROWS: u16 = 6;
 const FOOTER_ROWS: u16 = 1;
+/// The list's share of the width, which Ctrl-←/→ move, and its least columns.
+const LIST_PCT: u16 = 33;
+const LIST_MIN_COLS: u16 = 16;
 /// How long a result stays in the footer.
 const TOAST_TTL: Duration = Duration::from_secs(4);
 /// The viewer's text: numbered paragraphs, each long enough to wrap.
@@ -211,6 +221,7 @@ fn main() -> Result<()> {
 
     let (mut show_help, mut help_scroll) = (false, Scroll::new());
     let mut cursor = ListCursor::new();
+    let mut split = Split::horizontal(LIST_PCT).min_cells(LIST_MIN_COLS);
     let mut log_scroll = LogScroll::new();
     let mut modal = Modal::None;
     let mut prompt = Prompt::new();
@@ -233,17 +244,22 @@ fn main() -> Result<()> {
             Some(p) => format!("{head}\n\nheld: {}", p.message),
             None => head,
         };
+        let trail = match cursor.selected() {
+            Some(row) => format!("{policy:?} / ListCursor / row {row}"),
+            None => format!("{policy:?} / ListCursor"),
+        };
         let drawn = guard.term.draw(|frame| {
-            let [head, list, footer] = Layout::vertical([
+            let [crumb, head, list, footer] = Layout::vertical([
+                Constraint::Length(CRUMB_ROWS),
                 Constraint::Length(HEAD_ROWS),
                 Constraint::Fill(1),
                 Constraint::Length(FOOTER_ROWS),
             ])
             .areas(frame.area());
+            frame.render_widget(Breadcrumb::new(&trail).badge("guard_demo"), crumb);
             let body = Paragraph::new(text).block(Block::bordered().title(" guard_demo "));
             frame.render_widget(body, head);
-            let [list, right_area] =
-                Layout::horizontal([Constraint::Fill(1), Constraint::Fill(2)]).areas(list);
+            let [list, right_area] = split.areas(list);
             let [log_area, chart_area] =
                 Layout::vertical([Constraint::Fill(1), Constraint::Length(CHART_ROWS)])
                     .areas(right_area);
@@ -342,6 +358,10 @@ fn main() -> Result<()> {
         // raw mode: Ctrl-C is a key, and asks like `q` (its code is `c` too)
         if is_ctrl_c(key) {
             prompt.ask(Ask::Quit, "quit the demo?");
+            continue;
+        }
+        if let Some(pct) = split.key(key) {
+            toast.info(format!("list: {pct}% of the width"));
             continue;
         }
         match key.code {

@@ -35,19 +35,28 @@ and no run loop; each app keeps its own event loop and draws its own views.
   crate (feature `log`).
 - [`StatusBar`], [`KeyHints`], [`Toast`], [`Prompt`]: the bottom line: a
   status either side, the key legend fitted between them hint by hint, a
-  one-shot message, and an inline y/N question that lapses unanswered.- [`TimeChart`], [`Trace`], [`braille_spark`]: time series as braille
+  one-shot message, and an inline y/N question that lapses unanswered.
+- [`TimeChart`], [`Trace`], [`braille_spark`]: time series as braille
   lines up to now, gaps kept, scaled to what is in view, the latest values
-  in the border; and a sparkline in a string.- [`Waker`], [`Input`], [`next_event`], [`next_key`], [`is_ctrl_c`],
+  in the border; and a sparkline in a string.
+- [`Waker`], [`Input`], [`next_event`], [`next_key`], [`is_ctrl_c`],
   [`DrawErrors`]: event-loop pieces: a redraw asked for from any thread,
   the terminal read on its own thread so one wait covers keys and wakes,
   key releases skipped, and failed frames counted rather than fatal.
+- [`centered_rect`], [`Split`], [`Breadcrumb`]: a popup's place, two panes
+  whose share Ctrl-←/→ moves, a header of the app's name and where the
+  user is.
+- [`render_buffer`], [`buffer_rows`], [`buffer_text`]: a rendered buffer
+  read back as text, for tests.
 */
 
+mod breadcrumb;
 mod chart;
 mod dialog;
 mod editor;
 mod events;
 mod form;
+mod layout;
 mod list;
 mod logview;
 mod popup;
@@ -55,8 +64,10 @@ mod scroll;
 mod signals;
 mod statusbar;
 mod terminal;
+mod testing;
 mod text;
 
+pub use breadcrumb::Breadcrumb;
 pub use chart::{TimeChart, Trace, braille_spark, nice_ceil};
 pub use dialog::{Answer, ConfirmDialog, InputDialog, confirm_answer};
 pub use editor::{EditOutcome, EditorStyle, LineEditor};
@@ -64,6 +75,7 @@ pub use events::{
     DrawErrors, DrawReport, Input, Waker, is_ctrl_c, next_event, next_key,
 };
 pub use form::{Field, Focus, Form, FormAction};
+pub use layout::{Split, centered_rect};
 pub use list::{ListCursor, Nav, NavOutcome};
 #[cfg(feature = "log")]
 pub use logview::LogSink;
@@ -76,6 +88,7 @@ pub use terminal::{
     GuardBuilder, HeldPanic, PanicPolicy, TerminalGuard, Tui, eprintln_safe, held_panics,
     restore_terminal, take_held_panics, tui_active,
 };
+pub use testing::{buffer_rows, buffer_text, render_buffer};
 pub use text::{ellipsize_end, ellipsize_start, range_label, wrap_lines};
 
 /**

@@ -27,8 +27,8 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Clear, Paragraph, Widget, Wrap};
 
 use crate::dialog::{CHECKED, ERROR_COLOR, HINT_COLOR, INPUT_COLOR, INPUT_MIN_W, UNCHECKED};
-use crate::popup::{centered, chrome, popup_block, to_u16};
-use crate::{EditOutcome, LineEditor, wrap_lines};
+use crate::popup::{chrome, popup_block, to_u16};
+use crate::{EditOutcome, LineEditor, centered_rect, wrap_lines};
 
 /* ===== consts and statics ================================================= */
 
@@ -480,7 +480,7 @@ impl Form {
         let tail = self.tail(inner_w);
         let rows = to_u16(self.fields.len()).min(self.field_rows(outer, chrome_h, &tail));
         let height = rows.saturating_add(tail.height).saturating_add(chrome_h);
-        centered(outer, width, height)
+        centered_rect(outer, width, height)
     }
 
     /// Box width, inner width and chrome height for `outer`.
@@ -644,7 +644,7 @@ impl Widget for &Form {
         let height = to_u16(rows)
             .saturating_add(tail.height)
             .saturating_add(chrome_h);
-        let popup = centered(area, width, height);
+        let popup = centered_rect(area, width, height);
         let inner = block.inner(popup);
         Clear.render(popup, buf);
         block.render(popup, buf);
@@ -683,6 +683,8 @@ fn outcome(edit: EditOutcome) -> FormAction {
 mod tests {
     use super::*;
 
+    use crate::{buffer_text, render_buffer};
+
     const NAME: usize = 0;
     const HUB: usize = 1;
     const TOPO: usize = 2;
@@ -703,13 +705,7 @@ mod tests {
     }
 
     fn screen(form: &Form, w: u16, h: u16) -> String {
-        let area = Rect::new(0, 0, w, h);
-        let mut buf = Buffer::empty(area);
-        form.render(area, &mut buf);
-        (0..h)
-            .map(|y| (0..w).map(|x| buf[(x, y)].symbol()).collect::<String>())
-            .collect::<Vec<_>>()
-            .join("\n")
+        buffer_text(&render_buffer(form, w, h))
     }
 
     #[test]

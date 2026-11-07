@@ -634,6 +634,8 @@ mod tests {
     use crossterm::event::KeyCode;
     use std::time::Duration;
 
+    use crate::buffer_rows;
+
     fn numbered(capacity: usize, n: usize) -> LogBuffer {
         let log = LogBuffer::new(capacity);
         for i in 0..n {
@@ -649,14 +651,9 @@ mod tests {
             .stamp(Stamp::None)
             .levels(false)
             .render(buf.area, &mut buf, scroll);
-        (0..rows)
-            .map(|y| {
-                (0..8)
-                    .map(|x| buf[(x, y)].symbol())
-                    .collect::<String>()
-                    .trim_end()
-                    .to_string()
-            })
+        buffer_rows(&buf)
+            .into_iter()
+            .map(|row| row.trim_end().to_string())
             .collect()
     }
 
@@ -782,7 +779,7 @@ mod tests {
             LogView::new(&log)
                 .block(Block::bordered())
                 .render(area, &mut buf, scroll);
-            (0..30).map(|x| buf[(x, 4)].symbol()).collect::<String>()
+            buffer_rows(&buf).swap_remove(4)
         };
         assert!(!bottom(&mut scroll).contains("lines"));
         scroll.key(KeyEvent::from(KeyCode::Home));
