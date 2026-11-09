@@ -11,6 +11,7 @@ use std::ops::Range;
 
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Paragraph, Wrap};
+use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 /* ===== consts and statics ================================================= */
@@ -152,6 +153,58 @@ the byte offset of the last char taken, `None` if not even the first fits.
 A wide char that would overflow stops the walk, so the result may come out
 a column short rather than over.
 */
+/**
+`line` with its first `cols` display columns left out, for a view
+scrolled sideways; the spans keep their styles, and a borrowed span stays
+borrowed. A wide character cut in two shows its right half as spaces, so
+what follows stays in its column.
+*/
+pub(crate) fn skip_cols(line: Line<'_>, cols: usize) -> Line<'_> {
+    if cols == 0 {
+        return line;
+    }
+    let Line { style, alignment, spans } = line;
+    let mut left = cols;
+    let mut kept: Vec<Span> = Vec::with_capacity(spans.len());
+    for span in spans {
+        if left == 0 {
+            kept.push(span);
+            continue;
+        }
+        let w = span.width();
+        if w <= left {
+            left -= w;
+            continue;
+        }
+        // the cut is inside this span: where its rest starts, and the cut character's spaces
+        let (mut at, mut pad) = (span.content.len(), 0);
+        for (i, g) in span.content.grapheme_indices(true) {
+            if left == 0 {
+                at = i;
+                break;
+            }
+            let gw = g.width();
+            if gw > left {
+                (at, pad) = (i + g.len(), gw - left);
+                break;
+            }
+            left -= gw;
+        }
+        left = 0;
+        if pad > 0 {
+            kept.push(Span::styled(" ".repeat(pad), span.style));
+        }
+        let rest: Cow<'_, str> = match span.content {
+            Cow::Borrowed(s) => Cow::Borrowed(&s[at..]),
+            Cow::Owned(s) => Cow::Owned(s[at..].to_string()),
+        };
+        kept.push(Span::styled(rest, span.style));
+    }
+    let mut out = Line::from(kept).style(style);
+    out.alignment = alignment;
+    out
+}
+
 fn fit_from(chars: impl Iterator<Item = (usize, char)>, room: usize) -> Option<usize> {
     let mut used = 0;
     let mut last = None;
@@ -235,5 +288,28 @@ mod tests {
             assert!(ellipsize_start("日本語版", w).width() <= w);
             assert!(ellipsize_end("日本語版", w).width() <= w);
         }
+    }
+
+    #[test]
+    fn skip_cols_keeps_the_styles_and_the_columns() {
+        let red = Style::new().fg(Color::Red);
+        let line = Line::from(vec![Span::raw("ab"), Span::styled("cdef", red), Span::raw("gh")]);
+        let skipped = skip_cols(line.clone(), 3);
+        assert_eq!(skipped.spans, [Span::styled("def", red), Span::raw("gh")]);
+        assert!(matches!(skipped.spans[0].content, Cow::Borrowed(_)), "borrowed stays borrowed");
+        assert_eq!(skip_cols(line.clone(), 0), line);
+        assert_eq!(skip_cols(line.clone(), 8).width(), 0, "all of it");
+        assert_eq!(skip_cols(line, 99).width(), 0, "past the end");
+    }
+
+    #[test]
+    fn skip_cols_cuts_a_wide_character_to_spaces() {
+        // 漢 and 字 take two columns each: skipping 1 leaves 漢's right half as a space
+        let skipped = skip_cols(Line::from("漢字x"), 1);
+        assert_eq!(skipped.to_string(), " 字x");
+        assert_eq!(skipped.width(), 4);
+        assert_eq!(skip_cols(Line::from("漢字x"), 2).to_string(), "字x");
+        // a combining mark goes with its letter
+        assert_eq!(skip_cols(Line::from("e\u{301}fg"), 1).to_string(), "fg");
     }
 }

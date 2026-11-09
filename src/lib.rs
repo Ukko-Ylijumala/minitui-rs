@@ -28,7 +28,8 @@ and no run loop; each app keeps its own event loop and draws its own views.
   focus, optional buttons, a note and the validation error.
 - [`Scroll`], [`TextView`], [`CanvasView`]: a view taller than its area,
   scrolled by line with the last page kept full: text, or a whole layout
-  drawn on an off-screen buffer.
+  drawn on an off-screen buffer. Text can also scroll sideways and number
+  its lines.
 - [`LogBuffer`], [`LogView`], [`LogScroll`]: a log pane: a bounded ring of
   messages any thread pushes to (echoed to the shell while the TUI isn't
   up), its tail following new lines; `LogSink` feeds it from the `log`

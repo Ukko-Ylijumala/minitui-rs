@@ -57,7 +57,10 @@ Not a framework: there is no app trait and no run loop. Each app keeps its own e
 - **Scroll**: the offset of a view taller than its area, kept across frames
     - `window(len, rows)` before rendering: clamps the offset so the last page is full, returns the lines to show; `label(what)` for the title when it overflows
     - `key(key)`: ↑ ↓ Home End, PgUp / PgDn by the rows of the last draw less one, never past the end (so ↑ moves at once); `key_with(key, KeyModifiers::SHIFT)` for a detail pane beside a list
+    - sideways too: `window_cols(width, cols)` keeps the widest line's end at the right edge at the furthest; `key_sideways(key)` moves ← → by half the width, apart from `key` since many apps take ← for going back; `reveal(line, cols)` brings a search's match into view, a third of the way down the page
 - **TextView**: text in a `Scroll`ed view, optionally word-wrapped (scrolling by wrapped rows); only the lines in view are handed to the renderer; `lines a–b of N` in the bottom border when it overflows
+    - `sideways(true)`: lines wider than the view scroll sideways instead of being cut, by display columns (a wide character cut in two shows as spaces), with no limit on a line's length; the border adds `cols a–b of N`
+    - `line_numbers(true)`: the lines numbered in a dim gutter that stays put sideways; a wrapped line is numbered on its first row
 - **CanvasView**: a whole layout drawn on an off-screen buffer as tall as it needs, the rows in view copied into the frame, so panels of charts and tables scroll by line however small the terminal
 - **LogBuffer / LogView**: a log pane
     - `LogBuffer`: the last N messages, each with its time and level (critical … trace, syslog's plus trace), pushed from any thread (`log.warn(..)`, `log.push(level, ..)`); optionally echoed to the shell (stdout or stderr) while the TUI isn't up, so setup messages stay visible
