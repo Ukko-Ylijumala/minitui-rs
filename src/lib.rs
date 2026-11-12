@@ -62,6 +62,9 @@ and no run loop; each app keeps its own event loop and draws its own views.
 - [`centered_rect`], [`Split`], [`Breadcrumb`]: a popup's place, two panes
   whose share Ctrl-←/→ moves, a header of the app's name and where the
   user is.
+- [`copy_to_clipboard`], [`osc52`]: a text onto the clipboard of the
+  machine the terminal runs on, by OSC 52: through SSH, with no clipboard
+  tool where the app runs.
 - [`render_buffer`], [`buffer_rows`], [`buffer_text`]: a rendered buffer
   read back as text, for tests.
 */
@@ -69,6 +72,7 @@ and no run loop; each app keeps its own event loop and draws its own views.
 mod breadcrumb;
 mod capture;
 mod chart;
+mod clipboard;
 mod dialog;
 mod editor;
 mod events;
@@ -90,6 +94,7 @@ mod visible;
 
 pub use breadcrumb::Breadcrumb;
 pub use chart::{TimeChart, Trace, braille_spark, hbar, nice_ceil};
+pub use clipboard::{OSC52_MAX_BYTES, copy_to_clipboard, osc52};
 pub use dialog::{Answer, ConfirmDialog, InputDialog, confirm_answer};
 pub use editor::{EditOutcome, EditorStyle, LineEditor};
 pub use events::{

@@ -31,7 +31,9 @@ stderr is captured ([`GuardBuilder::capture_stderr`](minitui::GuardBuilder::capt
 `e` has a worker thread `eprintln!` two lines, which must show in the log
 pane, one of them as a warning, and nowhere on the screen. A panic report
 (`p`, or `w` outside `held` mode) must still reach the shell, and on the
-way out the demo says how many lines it caught.
+way out the demo says how many lines it caught. `y` copies the selected
+row's name to the clipboard by OSC 52 ([`copy_to_clipboard`]): paste it
+somewhere to see whether the terminal allowed it.
 
 Signals: `kill <pid>` (shown on screen) quits through the callback; in
 `bare` mode it restores the terminal and kills the demo by the signal.
@@ -56,7 +58,7 @@ use minitui::{
     HelpPopup, Input, InputDialog, KeyHints, LineEditor, ListCursor, LogBuffer, LogLevel,
     LogScroll, LogView, NavOutcome, PanicPolicy, Prompt, Reply, Scroll, SignalHandler, Split,
     Stamp, StatusBar, TerminalGuard, TextView, TimeChart, Toast, Trace, Waker, braille_spark,
-    confirm_answer,
+    confirm_answer, copy_to_clipboard,
     eprintln_safe, held_panics, is_ctrl_c, pill, range_label, take_held_panics, tui_active,
 };
 use ratatui::Frame;
@@ -75,6 +77,7 @@ static HINTS: &[(&str, &str)] = &[
     ("v", "view"),
     ("c", "clear log"),
     ("e", "stderr"),
+    ("y", "copy"),
     ("⇧↑↓", "scroll log"),
     ("^←→", "split"),
     ("p/w", "panic"),
@@ -96,6 +99,7 @@ static HELP_ROWS: &[(&str, &str)] = &[
     ("⇧ + those", "scroll the log; ⇧End follows it again"),
     ("Ctrl-← →", "move the split between the list and the log"),
     ("e", "a worker writes two lines to stderr: they show in the log"),
+    ("y", "copy the selected row's name (OSC 52, if the terminal allows)"),
     ("c", "clear the log (asks y/N)"),
     ("q / Ctrl-C", "quit (asks y/N)"),
 ];
@@ -390,6 +394,13 @@ fn main() -> Result<()> {
             KeyCode::Char('v') => modal = Modal::View(Scroll::new()),
             KeyCode::Char('h') | KeyCode::F(1) => show_help = !show_help,
             KeyCode::Char('p') => panic!("UI thread panic, as asked"),
+            KeyCode::Char('y') => {
+                let name = format!("row {}", cursor.selected().unwrap_or(0));
+                match copy_to_clipboard(&name) {
+                    Ok(()) => toast.info(format!("asked the terminal to copy '{name}'")),
+                    Err(e) => toast.warn(format!("not copied: {e}")),
+                }
+            }
             KeyCode::Char('e') => {
                 let wake = waker.clone();
                 thread::Builder::new().name("stray".into()).spawn(move || {

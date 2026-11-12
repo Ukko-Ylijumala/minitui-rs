@@ -108,6 +108,10 @@ Not a framework: there is no app trait and no run loop. Each app keeps its own e
     - `centered_rect`: an area of a given size centered in another, capped to it
     - `Split`: two panes side by side (or one above the other), the first one's share in percent moved a step at a time by Ctrl-← / Ctrl-→ (Ctrl-↑ / Ctrl-↓) within bounds; optionally neither pane smaller than so many cells while there is room for both; an app with several kinds of view keeps one for each, so each keeps the share the user gave it
     - `Breadcrumb`: a header row: the app's name as a badge, then the trail cut from its start so its most specific end stays in view; `leaf()` is the last segment, for the view's title
+- **copy_to_clipboard**: a text onto the clipboard by OSC 52, the escape sequence that asks the terminal to do it
+    - it works where the app has no display and no clipboard tool, through SSH: the clipboard is the one of the machine the terminal runs on
+    - where the terminal allows it: most do as they come, iTerm2 and xterm by a setting, tmux with `set -g set-clipboard on`; a terminal that will not ignores it, and none answers, so the app can say it asked
+    - at most `OSC52_MAX_BYTES` (74 991) of text, the longest sequence xterm takes; `osc52` gives the sequence itself
 - **Testing**: `render_buffer` draws a widget on a buffer of a given size; `buffer_rows` / `buffer_text` read a buffer (that one, or a `TestBackend`'s) back as text, skipping the cell a wide character hides so a row reads the way it shows
 - Popup titles are given bare (`"keys"`, `"destroy"`) and shown padded with a space on either side
 
