@@ -37,6 +37,10 @@ Not a framework: there is no app trait and no run loop. Each app keeps its own e
 - **wrap_lines**: how many rows a text takes word-wrapped to a width, counted by ratatui's own wrapper (so it can't disagree with the rendering), for sizing popups
 - **range_label**: `rows 21–40 of 300` for a title
 - **ellipsize_start / ellipsize_end**: fit a string into a number of columns with a leading / trailing `…`; display width aware (CJK and emoji take two columns), borrowed when it already fits
+- **Visible**: text that came from outside (a file under suspicion, a path) shown as it is
+    - ratatui drops control characters silently: an escape sequence loses its ESC and leaves its tail as if it were text. Here a C0 control is `^[`, DEL `^?`, and a C1 control, a bidirectional control (Trojan Source), a line separator or an invisible character (zero-width space and joiners, soft hyphen, BOM, the fillers, the tag characters) `<U+202E>`, each in a style of its own
+    - tabs run to the next stop in display columns (every 4th unless set), a line's closing `\r` is dropped
+    - `lines(text, styles)`: the text's lines, styled by byte ranges in order as a lexer gives its tokens, a glyph a glyph whatever token it is in; `line` for a path or a name, `plain` for a string (borrowed when nothing in it needed showing)
 - **LineEditor**: a single-line text editor for prompts
     - ← → Home End, Ctrl-← / Ctrl-→ (or Alt-) by word, Backspace / Delete, Ctrl-Backspace / Ctrl-Delete a word
     - readline: Ctrl-A / E / B / F / H, Alt-B / F by word; kills Ctrl-U / K / W, Alt-D, Alt-Backspace, and Ctrl-Y puts the last one back

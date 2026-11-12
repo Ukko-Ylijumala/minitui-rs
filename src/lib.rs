@@ -22,6 +22,10 @@ and no run loop; each app keeps its own event loop and draws its own views.
   table), centered, capped to the screen, scrollable.
 - [`wrap_lines`], [`ellipsize_start`], [`ellipsize_end`], [`range_label`]:
   measuring and fitting text in display columns.
+- [`Visible`]: text from outside shown as it is: tabs to their stops, and
+  control characters, bidirectional overrides and invisible characters as
+  glyphs, where ratatui would drop them without a trace; styled by byte
+  ranges, as a lexer gives them.
 - [`LineEditor`]: a single-line text editor with readline keys, scrolling
   by display width, optional masking.
 - [`InputDialog`], [`ConfirmDialog`], [`confirm_answer`]: modal prompts
@@ -82,6 +86,7 @@ mod tabs;
 mod terminal;
 mod testing;
 mod text;
+mod visible;
 
 pub use breadcrumb::Breadcrumb;
 pub use chart::{TimeChart, Trace, braille_spark, hbar, nice_ceil};
@@ -109,6 +114,7 @@ pub use terminal::{
 };
 pub use testing::{buffer_rows, buffer_text, render_buffer};
 pub use text::{Cut, ellipsize_end, ellipsize_start, fit_line, range_label, wrap_lines};
+pub use visible::Visible;
 
 /**
 `eprintln!` that stays silent while a [`TerminalGuard`] owns the terminal
