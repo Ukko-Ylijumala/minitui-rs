@@ -125,7 +125,7 @@ git = "https://github.com/Ukko-Ylijumala/minitui-rs"
 version = "0.1"
 ```
 
-Releases are tagged `vX.Y.Z`; use `tag = "v0.1.8"` instead of `version` to pin one exactly.
+Releases are tagged `vX.Y.Z`; use `tag = "v0.1.9"` instead of `version` to pin one exactly.
 
 Features: `log` adds `LogSink`, a backend for the `log` crate (`features = ["log"]`).
 
@@ -254,6 +254,8 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## Version History
 
+- 0.1.9: A filter the app sets
+    - `Filter::set`: the filter's text given by the app, as if typed and kept with Enter, for a jump from one view to the rows one value has in another; control characters left out, as from a paste
 - 0.1.8: A captured stderr, visible text and the clipboard
     - `GuardBuilder::capture_stderr` / `stderr_levels` and `LogLevel::of_line`: stderr into a `LogBuffer` while the guard is alive, by file descriptor, back before a panic report or a last word is printed; for an app that prints its diagnostics from more places than anyone would rewrite. `rustix` becomes a direct dependency (it was crossterm's already)
     - `Visible`, from wp-scanner's file viewer: tabs to their stops, control characters, bidirectional overrides and invisible characters as glyphs, styled by a lexer's byte ranges
