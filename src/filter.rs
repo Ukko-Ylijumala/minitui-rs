@@ -48,6 +48,7 @@ pub enum FilterOutcome {
 The filter's text and whether it is being typed. [`start`](Filter::start)
 on the app's key (`/`); while typing, Enter keeps the filter and Esc drops
 it; afterwards the app clears it with [`clear`](Filter::clear) (Esc, say).
+[`set`](Filter::set) is for a filter the app chooses instead of the user.
 
 ```no_run
 # use crossterm::event::{KeyCode, KeyEvent};
@@ -114,6 +115,19 @@ impl Filter {
     pub fn clear(&mut self) {
         self.editor.clear();
         self.editing = false;
+    }
+
+    /**
+    Give it its text, as if typed and kept with Enter: a filter the app
+    sets itself, say on a jump from another view to the rows one value has.
+    Whatever it held is replaced and typing is over; control characters are
+    left out, as from a paste, and an empty text is [`clear`](Filter::clear).
+    Nothing comes back: filter the rows again, as after
+    [`Changed`](FilterOutcome::Changed).
+    */
+    pub fn set(&mut self, text: &str) {
+        self.clear();
+        self.editor.insert(text);
     }
 
     /// One key; see [`FilterOutcome`]. Every key is [`Ignored`](FilterOutcome::Ignored) when not typing.
@@ -250,6 +264,29 @@ mod tests {
         assert_eq!(filter.text(), "akismet");
         assert_eq!(filter.handle_key(key(KeyCode::Esc)), FilterOutcome::Cleared);
         assert_eq!((filter.text(), filter.is_editing(), filter.is_active()), ("", false, false));
+    }
+
+    #[test]
+    fn set_by_the_app() {
+        let mut filter = Filter::new();
+        filter.set("r:=wso-shell");
+        assert_eq!((filter.text(), filter.is_editing(), filter.is_active()), ("r:=wso-shell", false, true));
+        let text = buffer_text(&render_buffer(filter.bar(), 24, 1));
+        assert_eq!(text, "filter > r:=wso-shell   ", "set, not typed: no cursor cell");
+        // typed on from its end, like one the user kept
+        filter.start();
+        typed(&mut filter, "s");
+        assert_eq!(filter.text(), "r:=wso-shells");
+        // over one being typed: replaced, and the typing is over
+        filter.handle_key(key(KeyCode::Home));
+        filter.set("k:kit");
+        assert_eq!((filter.text(), filter.is_editing()), ("k:kit", false));
+        assert_eq!(filter.handle_key(key(KeyCode::Char('x'))), FilterOutcome::Ignored);
+        // one line: what a paste leaves out is left out here
+        filter.set("a\tb\r\nc\x1b");
+        assert_eq!(filter.text(), "abc");
+        filter.set("");
+        assert_eq!((filter.is_active(), filter.is_editing()), (false, false));
     }
 
     #[test]
