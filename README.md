@@ -125,7 +125,7 @@ git = "https://github.com/Ukko-Ylijumala/minitui-rs"
 version = "0.1"
 ```
 
-Releases are tagged `vX.Y.Z`; use `tag = "v0.1.7"` instead of `version` to pin one exactly.
+Releases are tagged `vX.Y.Z`; use `tag = "v0.1.8"` instead of `version` to pin one exactly.
 
 Features: `log` adds `LogSink`, a backend for the `log` crate (`features = ["log"]`).
 
@@ -254,6 +254,10 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## Version History
 
+- 0.1.8: A captured stderr, visible text and the clipboard
+    - `GuardBuilder::capture_stderr` / `stderr_levels` and `LogLevel::of_line`: stderr into a `LogBuffer` while the guard is alive, by file descriptor, back before a panic report or a last word is printed; for an app that prints its diagnostics from more places than anyone would rewrite. `rustix` becomes a direct dependency (it was crossterm's already)
+    - `Visible`, from wp-scanner's file viewer: tabs to their stops, control characters, bidirectional overrides and invisible characters as glyphs, styled by a lexer's byte ranges
+    - `copy_to_clipboard` and `osc52`: the clipboard by OSC 52, through SSH
 - 0.1.7: Sideways scrolling and line numbers
     - `TextView::sideways` and `Scroll::window_cols` / `key_sideways` / `by_cols` / `reveal` / `label_cols`: text whose lines are longer than any terminal, a search's match brought into view; first for wp-scanner's file viewer
     - `TextView::line_numbers`: a gutter that stays put; a wrapped view now finds its lines by each one's rows, so it no longer stops 65535 rows down
