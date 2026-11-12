@@ -11,6 +11,10 @@ and no run loop; each app keeps its own event loop and draws its own views.
   tear the terminal down; the others are held, see [`held_panics`]).
 - [`tui_active`], [`eprintln_safe()`] / [`eprintln_safe!`]: keep stray stderr
   output (and log echoes) off the TUI while it is up.
+- [`GuardBuilder::capture_stderr`]: or let it all be written: stderr itself
+  goes into a [`LogBuffer`] while the guard is alive, whoever writes to it,
+  and is the shell's again before a panic report or a last word is printed;
+  [`LogLevel::of_line`] reads a line's level off its first word.
 - [`SignalHandler`]: SIGINT / SIGTERM / SIGHUP / SIGQUIT go to the app's
   quit path; a repeat (or no quit path at all) restores the terminal and
   terminates, so a `kill` never leaves the shell in raw mode.
@@ -59,6 +63,7 @@ and no run loop; each app keeps its own event loop and draws its own views.
 */
 
 mod breadcrumb;
+mod capture;
 mod chart;
 mod dialog;
 mod editor;
@@ -109,7 +114,8 @@ pub use text::{Cut, ellipsize_end, ellipsize_start, fit_line, range_label, wrap_
 `eprintln!` that stays silent while a [`TerminalGuard`] owns the terminal
 (see [`tui_active`]), so a stray diagnostic can't scribble over the TUI.
 It only gates *your* prints: other crates' output and panics are not
-covered (the guard's panic hook handles the latter).
+covered (the guard's panic hook handles the latter, and
+[`GuardBuilder::capture_stderr`] the former).
 */
 #[macro_export]
 macro_rules! eprintln_safe {

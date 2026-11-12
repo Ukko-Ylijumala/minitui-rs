@@ -27,6 +27,12 @@ In `held` mode a worker panic leaves the TUI up and shows the held panic.
 The log's first and last lines echo on the shell, before the TUI comes up
 and after it is gone.
 
+stderr is captured ([`GuardBuilder::capture_stderr`](minitui::GuardBuilder::capture_stderr)):
+`e` has a worker thread `eprintln!` two lines, which must show in the log
+pane, one of them as a warning, and nowhere on the screen. A panic report
+(`p`, or `w` outside `held` mode) must still reach the shell, and on the
+way out the demo says how many lines it caught.
+
 Signals: `kill <pid>` (shown on screen) quits through the callback; in
 `bare` mode it restores the terminal and kills the demo by the signal.
 */
@@ -68,6 +74,7 @@ static HINTS: &[(&str, &str)] = &[
     ("f", "form"),
     ("v", "view"),
     ("c", "clear log"),
+    ("e", "stderr"),
     ("⇧↑↓", "scroll log"),
     ("^←→", "split"),
     ("p/w", "panic"),
@@ -88,6 +95,7 @@ static HELP_ROWS: &[(&str, &str)] = &[
     ("PgUp PgDn", "else move in the list"),
     ("⇧ + those", "scroll the log; ⇧End follows it again"),
     ("Ctrl-← →", "move the split between the list and the log"),
+    ("e", "a worker writes two lines to stderr: they show in the log"),
     ("c", "clear the log (asks y/N)"),
     ("q / Ctrl-C", "quit (asks y/N)"),
 ];
@@ -151,6 +159,8 @@ const GAP_TO: u64 = 74;
 /// The footer's sparkline: cells, and its fixed top.
 const SPARK_CELLS: usize = 12;
 const SPARK_MAX: f64 = 100.0;
+/// What both of `e`'s lines say, to count them on the way out.
+static STRAY: &str = "stderr";
 /// The quit path: set by `q`, a signal and, through `on_panic`, by any panic.
 static QUIT: AtomicBool = AtomicBool::new(false);
 
@@ -201,6 +211,8 @@ fn main() -> Result<()> {
     log.notice("guard_demo starting: this line must appear on the shell");
     let mut builder = TerminalGuard::builder()
         .keyboard_enhancement(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+        // from here to the guard's end, stderr is lines of the log
+        .capture_stderr(log.clone())
         .panic_policy(policy)
         .panic_prefix("guard_demo");
     /*
@@ -378,6 +390,14 @@ fn main() -> Result<()> {
             KeyCode::Char('v') => modal = Modal::View(Scroll::new()),
             KeyCode::Char('h') | KeyCode::F(1) => show_help = !show_help,
             KeyCode::Char('p') => panic!("UI thread panic, as asked"),
+            KeyCode::Char('e') => {
+                let wake = waker.clone();
+                thread::Builder::new().name("stray".into()).spawn(move || {
+                    eprintln!("a stray line on stderr, from a worker thread");
+                    eprintln!("warning: \x1b[33mand one on stderr that calls itself a warning\x1b[0m");
+                    wake.wake();
+                })?;
+            }
             KeyCode::Char('w') => {
                 let _ = thread::Builder::new()
                     .name("worker".into())
@@ -392,6 +412,8 @@ fn main() -> Result<()> {
     drop(input);
     drop(guard);
     eprintln_safe!("guard dropped: this line must appear");
+    let stray = log.with(|entries| entries.iter().filter(|e| e.msg.contains(STRAY)).count());
+    eprintln!("stderr is the shell's again; {stray} lines of it were caught in the log");
     log.notice("guard_demo done: this line must appear on the shell");
     for p in take_held_panics() {
         eprintln!("held: {p}");

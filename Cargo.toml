@@ -20,6 +20,8 @@ log = ["dep:log"]
 [dependencies]
 signal-hook = "0.3"
 crossterm = "0.29"
+# already in the tree through crossterm; here for the stderr capture's dup2 and poll
+rustix = { version = "1", features = ["event", "stdio"] }
 log = { version = "0.4", optional = true, features = ["std"] }
 # lean: only the crossterm backend, pinned to the same crossterm as above.
 # unstable-rendered-line-info: Paragraph::line_count, used by wrap_lines only

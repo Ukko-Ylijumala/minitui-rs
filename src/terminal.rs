@@ -29,6 +29,10 @@ had:
   terminal down; a worker panic is held for the app to report (zfs-browser);
 - optional kitty keyboard enhancement, pushed only where the terminal
   supports it and popped only if it was pushed (zfs-browser, nft-browser).
+
+New here, not from an app: [`GuardBuilder::capture_stderr`] sends file
+descriptor 2 into a [`LogBuffer`] for the guard's lifetime, for an app whose
+diagnostics are `eprintln!`s it cannot rewrite (see `capture.rs`).
 */
 
 use std::fmt;
@@ -51,6 +55,9 @@ use crossterm::terminal::{
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
+use crate::capture::{self, LevelFn};
+use crate::{LogBuffer, LogLevel};
+
 /* ===== consts and statics ================================================= */
 
 /*
@@ -64,6 +71,7 @@ const CLAIMED: u8 = 1 << 0;
 const RAW_MODE: u8 = 1 << 1;
 const ALT_SCREEN: u8 = 1 << 2;
 const KB_FLAGS: u8 = 1 << 3;
+const STDERR: u8 = 1 << 4;
 
 static STATE: AtomicU8 = AtomicU8::new(0);
 /// The process-wide panic hook is installed (once, by the first guard).
@@ -78,6 +86,11 @@ static ERR_ACTIVE: &str = "a TerminalGuard is already active";
 static OPAQUE_PAYLOAD: &str = "Box<dyn Any>";
 /// Std's own name for a thread without one.
 static UNNAMED_THREAD: &str = "<unnamed>";
+
+/// One at a time for every test that touches this module's statics or file
+/// descriptor 2 (see the notes at the tests here and in `capture.rs`).
+#[cfg(test)]
+pub(crate) static TEST_LOCK: Mutex<()> = Mutex::new(());
 
 /* ===== types ============================================================== */
 
@@ -154,6 +167,8 @@ pub struct GuardBuilder {
     policy: PanicPolicy,
     on_panic: Option<PanicCallback>,
     prefix: Option<String>,
+    stderr: Option<Arc<LogBuffer>>,
+    stderr_levels: Option<LevelFn>,
 }
 
 /* ===== the guard ========================================================== */
@@ -220,6 +235,55 @@ impl GuardBuilder {
     }
 
     /**
+    Send everything written to stderr while the guard is alive into `log`,
+    a line a message, instead of onto the screen: the app's own
+    `eprintln!`s, those of the crates it uses, C libraries and child
+    processes alike, since it is file descriptor 2 that is redirected. For
+    an app that became a TUI after it had its diagnostics.
+
+    stderr is the process's own again as soon as the terminal is restored
+    (by drop, by the panic hook before it prints the report, by the signal
+    handler before it terminates), so what is printed after that reaches
+    the shell. The captured lines stay in `log`, never echoed, for a
+    [`LogView`](crate::LogView) and for the app to print on its way out.
+    Their levels come from [`LogLevel::of_line`] unless
+    [`GuardBuilder::stderr_levels`] says otherwise; each message is the
+    line as written, less escape sequences and control characters, so with
+    lines that name their own level a view reads better without its own
+    tag ([`LogView::levels`](crate::LogView::levels)).
+
+    A line shows with the loop's next frame: nothing wakes the loop for it.
+
+    ```no_run
+    use std::sync::Arc;
+    use minitui::{LogBuffer, LogLevel, TerminalGuard};
+
+    let log = Arc::new(LogBuffer::new(5000));
+    let guard = TerminalGuard::builder().capture_stderr(log.clone()).build()?;
+    eprintln!("warning: this is a line of the log, not a smear on the screen");
+    drop(guard);
+    // the terminal is back: say again what mattered
+    log.with(|entries| {
+        for e in entries.iter().filter(|e| e.level <= LogLevel::Warn) {
+            eprintln!("{}", e.msg);
+        }
+    });
+    # Ok::<(), std::io::Error>(())
+    ```
+    */
+    pub fn capture_stderr(mut self, log: Arc<LogBuffer>) -> Self {
+        self.stderr = Some(log);
+        self
+    }
+
+    /// The level of a captured line (see [`GuardBuilder::capture_stderr`]),
+    /// for an app that knows how its own lines begin.
+    pub fn stderr_levels(mut self, level: fn(&str) -> LogLevel) -> Self {
+        self.stderr_levels = Some(level);
+        self
+    }
+
+    /**
     Enter TUI mode. Fails with [`ErrorKind::AlreadyExists`] while another
     guard is alive; on any other failure, whatever setup already happened is
     undone before returning.
@@ -239,7 +303,8 @@ impl GuardBuilder {
             on_panic: self.on_panic,
             prefix: self.prefix,
         })));
-        match enter(self.keyboard) {
+        let levels = self.stderr_levels.unwrap_or(LogLevel::of_line);
+        match enter(self.keyboard, self.stderr.map(|log| (log, levels))) {
             Ok(term) => Ok(TerminalGuard { term }),
             Err(e) => {
                 restore_terminal();
@@ -251,7 +316,12 @@ impl GuardBuilder {
 }
 
 /// The setup steps, each recorded in [`STATE`] as soon as it has happened.
-fn enter(keyboard: Option<KeyboardEnhancementFlags>) -> Result<Tui> {
+fn enter(keyboard: Option<KeyboardEnhancementFlags>, stderr: Option<(Arc<LogBuffer>, LevelFn)>) -> Result<Tui> {
+    // first: nothing written to stderr from here on reaches the screen
+    if let Some((log, levels)) = stderr {
+        capture::start(log, levels)?;
+        STATE.fetch_or(STDERR, Ordering::AcqRel);
+    }
     enable_raw_mode()?;
     STATE.fetch_or(RAW_MODE, Ordering::AcqRel);
     let mut out = stdout();
@@ -289,12 +359,18 @@ pub fn restore_terminal() {
     if state & RAW_MODE != 0 {
         let _ = disable_raw_mode();
     }
+    // last: a line written while the screen was coming down is in the log,
+    // and whatever the caller prints next is on the shell
+    if state & STDERR != 0 {
+        capture::stop();
+    }
 }
 
 /**
 Whether a guard currently owns the terminal: from the start of its setup
 until it is restored (by drop or by the panic hook). While it is, nothing
-else may write to stdout/stderr. A render loop on another thread should
+else may write to stdout, nor to stderr unless the guard captures it
+([`GuardBuilder::capture_stderr`]). A render loop on another thread should
 also check this before drawing, since the panic hook may have restored the
 terminal before the unwinding reaches the app's own shutdown path.
 */
@@ -415,10 +491,12 @@ its failure still shows.
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Write, stderr};
     use std::panic::catch_unwind;
     use std::sync::atomic::AtomicUsize;
 
-    static TEST_LOCK: Mutex<()> = Mutex::new(());
+    use crate::capture::tests::{FakeTerminal, stderr_id};
+
     /// The message of every panic these tests raise on purpose.
     static TEST_PANIC: &str = "minitui test panic";
 
@@ -555,6 +633,29 @@ mod tests {
             CLAIMED,
             "first guard's state untouched"
         );
+        reset();
+    }
+
+    #[test]
+    fn a_panic_puts_stderr_back_before_it_is_reported() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let _serial = fake_guard(PanicPolicy::Always, &calls);
+        let mut terminal = FakeTerminal::new();
+        let before = stderr_id();
+        let log = Arc::new(LogBuffer::new(10));
+        capture::start(log.clone(), LogLevel::of_line).unwrap();
+        STATE.fetch_or(STDERR, Ordering::AcqRel);
+        stderr().write_all(b"said while the TUI was up\n").unwrap();
+
+        assert!(catch_unwind(|| panic!("{TEST_PANIC}")).is_err());
+
+        assert!(!tui_active());
+        assert_eq!(stderr_id(), before, "the hook put fd 2 back");
+        // the report is in libtest's capture, or with --nocapture on the "terminal"
+        let shown = terminal.shown();
+        assert!(shown.is_empty() || shown.contains(TEST_PANIC), "{shown:?}");
+        assert!(!shown.contains("said while"), "{shown:?}");
+        assert_eq!(log.with(|e| e.iter().map(|e| e.msg.clone()).collect::<Vec<_>>()), ["said while the TUI was up"]);
         reset();
     }
 

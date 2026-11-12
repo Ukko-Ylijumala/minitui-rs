@@ -16,6 +16,12 @@ Not a framework: there is no app trait and no run loop. Each app keeps its own e
     - `UiThreadOnly`: only a panic on the thread that built the guard does; a worker's panic is held (`held_panics` / `take_held_panics`) so the UI can show what died and the app can print it once the terminal is restored
 - **on_panic**: a callback run from the panic hook, typically the app's quit path, so other threads stop drawing on a restored terminal
 - **tui_active / eprintln_safe(!)**: keep stray stderr output and log echo off the TUI while it is up
+- **capture_stderr**: everything written to stderr while the guard is alive becomes lines of a `LogBuffer` instead of smears on the screen, for an app that had its `eprintln!`s before it had a TUI
+    - file descriptor 2 itself is redirected (into a pipe a thread reads), so it covers the app's own prints, the crates it uses, C libraries and child processes, with no call site changed
+    - stderr is the shell's again as soon as the terminal is restored: by drop, by the panic hook before the report is printed, by the signal handler before the process dies. A child that still holds the pipe never delays that
+    - a line's level is read off its first word (`LogLevel::of_line`: `error:`, `[WARN]`, `thread '…' panicked at`) or by the app's own `stderr_levels`; escape sequences and control characters are left out, a line redrawn in place with `\r` shows its last state
+    - the lines stay in the buffer, never echoed, for the app to print again once the terminal is back
+    - what it cannot save: the last words of a process that aborts (a stack overflow, a panic within a panic) go down with the pipe
 - **restore_terminal**: leave TUI mode early, e.g. from a signal handler that is about to exit
 - **SignalHandler**: SIGINT, SIGTERM, SIGHUP and SIGQUIT (configurable) on a listener thread, via signal-hook
     - with an `on_signal` callback, the first signal goes to the app's quit path, which drops the guard and does its own cleanup
@@ -226,7 +232,7 @@ cargo run --example guard_demo -- held    # PanicPolicy::UiThreadOnly
 cargo run --example guard_demo -- bare    # SignalHandler without a callback
 ```
 
-Keys: `p` panics on the UI thread, `w` on a worker thread, `h` toggles the help popup (↑ / ↓ scroll it in a small terminal), `i` opens an input dialog (Tab masks the text, Enter asks for confirmation), `q` quits. The shell must come back clean after each, with the panic report on it. `kill <pid>` (the pid is shown on screen) quits through the callback, or in `bare` mode restores the terminal and dies by the signal.
+Keys: `p` panics on the UI thread, `w` on a worker thread, `e` has a worker write to stderr (the lines must show in the log pane and nowhere else), `h` toggles the help popup (↑ / ↓ scroll it in a small terminal), `i` opens an input dialog (Tab masks the text, Enter asks for confirmation), `q` quits. The shell must come back clean after each, with the panic report on it. `kill <pid>` (the pid is shown on screen) quits through the callback, or in `bare` mode restores the terminal and dies by the signal.
 
 ## License
 

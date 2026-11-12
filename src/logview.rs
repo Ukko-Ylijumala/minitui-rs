@@ -44,6 +44,8 @@ use crate::{NavOutcome, Scroll, tui_active};
 pub(crate) const SECS_PER_DAY: u64 = 86_400;
 pub(crate) const SECS_PER_HOUR: u64 = 3_600;
 pub(crate) const SECS_PER_MIN: u64 = 60;
+/// How std's panic report goes on after `thread 'name' `.
+static PANICKED_AT: &str = "panicked at";
 
 /**
 `LogBuffer::error(msg)` and friends: `msg` at that level, through the
@@ -241,6 +243,44 @@ impl LogLevel {
         }
     }
 
+    /**
+    The level a line of someone else's output gives itself, by the word it
+    starts with, in any case and after any `[`: `error:`, `ERROR`, `fatal`,
+    `panic` (and std's `thread '…' panicked at`) are [`LogLevel::Error`],
+    `critical` is [`LogLevel::Critical`], `warning:` / `[WARN]` are
+    [`LogLevel::Warn`], `note` / `notice`, `debug` and `trace` their own,
+    anything else [`LogLevel::Info`]. What a captured stderr is sorted by
+    unless the app knows its own lines better.
+
+    ```
+    use minitui::LogLevel;
+
+    assert_eq!(LogLevel::of_line("error[E0308]: mismatched types"), LogLevel::Error);
+    assert_eq!(LogLevel::of_line("[WARN] disk 91% full"), LogLevel::Warn);
+    assert_eq!(LogLevel::of_line("Errors: 0"), LogLevel::Info);
+    ```
+    */
+    pub fn of_line(line: &str) -> Self {
+        let rest = line.trim_start().trim_start_matches('[');
+        let word = &rest[..rest.find(|c: char| !c.is_ascii_alphabetic()).unwrap_or(rest.len())];
+        let is = |names: &[&str]| names.iter().any(|name| word.eq_ignore_ascii_case(name));
+        if is(&["critical", "crit"]) {
+            Self::Critical
+        } else if is(&["error", "err", "fatal", "panic"]) || (word == "thread" && rest.contains(PANICKED_AT)) {
+            Self::Error
+        } else if is(&["warning", "warn"]) {
+            Self::Warn
+        } else if is(&["notice", "note"]) {
+            Self::Notice
+        } else if is(&["debug"]) {
+            Self::Debug
+        } else if is(&["trace"]) {
+            Self::Trace
+        } else {
+            Self::Info
+        }
+    }
+
     /// The style of a message at this level: red for errors, yellow for
     /// warnings, cyan for notices, plain for info, dim below.
     pub fn style(self) -> Style {
@@ -385,6 +425,16 @@ impl LogBuffer {
         if level <= self.echo_level && !tui_active() {
             self.echo_entry(&entry);
         }
+        self.keep(entry);
+    }
+
+    /// Add a message without the echo: a line off a captured stderr, which an
+    /// echo there would send straight back in.
+    pub(crate) fn push_quiet(&self, level: LogLevel, msg: impl Into<String>) {
+        self.keep(LogEntry::new(level, msg));
+    }
+
+    fn keep(&self, entry: LogEntry) {
         let mut ring = lock(&self.ring);
         if ring.entries.len() == ring.capacity {
             ring.entries.pop_front();
@@ -679,6 +729,31 @@ mod tests {
         assert!(LogLevel::Warn <= LogLevel::Warn);
         assert!(LogLevel::Debug > LogLevel::Info);
         assert_eq!(LogLevel::Notice.to_string(), "NOTE");
+    }
+
+    #[test]
+    fn a_line_s_own_level() {
+        for (line, level) in [
+            ("error: no such file", LogLevel::Error),
+            ("ERROR: no such file", LogLevel::Error),
+            ("  Fatal - giving up", LogLevel::Error),
+            ("error[E0308]: mismatched types", LogLevel::Error),
+            ("thread 'worker' panicked at src/a.rs:1:2:", LogLevel::Error),
+            ("thread pool of 8", LogLevel::Info),
+            ("CRITICAL: out of space", LogLevel::Critical),
+            ("warning: unused variable", LogLevel::Warn),
+            ("[WARN] 91% full", LogLevel::Warn),
+            ("note: see above", LogLevel::Notice),
+            ("DEBUG probe 3", LogLevel::Debug),
+            ("trace: enter", LogLevel::Trace),
+            ("Errors: 0", LogLevel::Info),
+            ("warned you", LogLevel::Info),
+            ("walked 12 files", LogLevel::Info),
+            ("", LogLevel::Info),
+            ("äö", LogLevel::Info),
+        ] {
+            assert_eq!(LogLevel::of_line(line), level, "{line:?}");
+        }
     }
 
     #[test]
