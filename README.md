@@ -138,7 +138,7 @@ git = "https://github.com/Ukko-Ylijumala/minitui-rs"
 version = "0.1"
 ```
 
-Releases are tagged `vX.Y.Z`; use `tag = "v0.1.10"` instead of `version` to pin one exactly.
+Releases are tagged `vX.Y.Z`; use `tag = "v0.1.11"` instead of `version` to pin one exactly.
 
 Features: `log` adds `LogSink`, a backend for the `log` crate (`features = ["log"]`); `local` turns on [timesince](https://github.com/Ukko-Ylijumala/timesince-rs)'s feature of that name, the system's time zone for a log's times (`UtcOffset::local()`, Unix).
 
@@ -269,6 +269,8 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## Version History
 
+- 0.1.11: Source text in colours
+    - `Lang`, `Syntax`, `Token`: lexers for PHP (with the HTML around it), CSS, JavaScript and Perl, from the file viewers of two apps, which each had half; one set of kinds and one table of colours, also for an app with a lexer of its own. `strum` becomes a direct dependency (it was ratatui's already)
 - 0.1.10: Times by timesince, a gauge and a text search
     - dates, times and durations are written by [timesince](https://github.com/Ukko-Ylijumala/timesince-rs) (0.3.5, without its serde feature), re-exported as `minitui::timesince`; minitui's own calendar code is gone. `Stamp::Layout(DateFormat)` for a log's times in a layout of the app's, `LogView::offset(UtcOffset)` for an offset from UTC, feature `local` for the system's time zone. `Stamp` has a variant more, so a `match` over all of them needs an arm; a time before 1970 is its own date, where it was the epoch
     - `Gauge` and `Levels`: a label, a bar, the percentage and a text on one line, coloured by a warning level and a bad one
