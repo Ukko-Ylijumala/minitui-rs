@@ -60,6 +60,8 @@ and no run loop; each app keeps its own event loop and draws its own views.
 - [`Filter`], [`FilterBar`]: a list's filter typed as you go, Enter to
   keep it and Esc to drop it, the list's keys passed through; [`hbar`]:
   a horizontal bar in eighth blocks.
+- [`Gauge`], [`Levels`]: a share of a whole on one line: a label, the bar,
+  the percentage and a text, coloured by a warning level and a bad one.
 - [`centered_rect`], [`Split`], [`Breadcrumb`]: a popup's place, two panes
   whose share Ctrl-←/→ moves, a header of the app's name and where the
   user is.
@@ -83,6 +85,7 @@ mod editor;
 mod events;
 mod filter;
 mod form;
+mod gauge;
 mod layout;
 mod list;
 mod logview;
@@ -107,6 +110,7 @@ pub use events::{
 };
 pub use filter::{Filter, FilterBar, FilterOutcome};
 pub use form::{Field, Focus, Form, FormAction};
+pub use gauge::{Gauge, Levels};
 pub use layout::{Split, centered_rect};
 pub use list::{ListCursor, Nav, NavOutcome};
 #[cfg(feature = "log")]

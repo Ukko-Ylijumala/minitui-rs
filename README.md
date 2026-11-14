@@ -97,6 +97,9 @@ Not a framework: there is no app trait and no run loop. Each app keeps its own e
     - `Filter`: the text in a `LineEditor`, and whether it is being typed; `start` on the app's key (`/`), Enter keeps the filter (`Done`), Esc drops it (`Cleared`), an edit is `Changed`; keys that aren't editing keys (↑ ↓ PgUp PgDn) come back `Ignored`, so the list moves while the filter is typed; `set` gives it a text the app chose (a jump from another view to the rows one value has), as if typed and kept. What the text matches stays with the app
     - `FilterBar`: `filter > text` in one row (the cursor cell while typing), `shown of total` on the right where the whole text leaves room; nothing for a filter neither typed nor set
 - **hbar**: `value` of `max` as a horizontal bar in eighth blocks (`██▋`), a value above zero always at least `▏`: a distribution's rows
+- **Gauge / Levels**: a share of a whole on one line, `ring      ▕██████▋     ▏  57.3%  1.2 G of 2.1 G`
+    - `Gauge`: a label in a column of its own, the bar, the percentage and a text; the bar takes what the row leaves (or a set width), in eighths between `▕ ▏`, or in whole cells over a track (`[████░░░░]`); a share that isn't known keeps its place as an empty bar and a `–`
+    - `Levels`: a warning level and a bad one, and the style of a value by where it lies (green, yellow, red, or the app's); the bad level below the warning one for a value that is worse the lower it is. Colours a gauge by how full it is, or any number on its own
 - **fit_line**: a styled `Line` cut to a width at either end (`Cut`), as `ellipsize_end` / `ellipsize_start` cut a string
 - **Event loop**: pieces, not a loop
     - `Waker`: any thread (a data thread, the signal callback) asks the render loop for a frame now; the loop waits on it with its heartbeat as the timeout, and a burst of wakes makes one frame
