@@ -29,6 +29,8 @@ log = { version = "0.4", optional = true, features = ["std"] }
 # lean: only the crossterm backend, pinned to the same crossterm as above.
 # unstable-rendered-line-info: Paragraph::line_count, used by wrap_lines only
 ratatui = { version = "0.30", default-features = false, features = ["crossterm_0_29", "unstable-rendered-line-info"] }
+# already in the tree through ratatui; here for the names the lexers of `syntax` know
+strum = { version = "0.28", features = ["derive"] }
 unicode-segmentation = "1.12"
 unicode-width = "0.2"
 

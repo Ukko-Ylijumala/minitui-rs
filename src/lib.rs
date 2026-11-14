@@ -26,6 +26,9 @@ and no run loop; each app keeps its own event loop and draws its own views.
   control characters, bidirectional overrides and invisible characters as
   glyphs, where ratatui would drop them without a trace; styled by byte
   ranges, as a lexer gives them.
+- [`Lang`], [`Syntax`], [`Token`]: such a lexer: PHP (and the HTML around
+  it), CSS, JavaScript and Perl read into byte ranges with what they are,
+  and the colour of each kind; for the reader's eye, never failing.
 - [`LineEditor`]: a single-line text editor with readline keys, scrolling
   by display width, optional masking.
 - [`InputDialog`], [`ConfirmDialog`], [`confirm_answer`]: modal prompts
@@ -97,6 +100,7 @@ mod scroll;
 mod search;
 mod signals;
 mod statusbar;
+mod syntax;
 mod table;
 mod tabs;
 mod terminal;
@@ -125,6 +129,7 @@ pub use scroll::{CanvasView, Scroll, TextView};
 pub use search::TextSearch;
 pub use signals::{Signal, SignalBuilder, SignalHandler};
 pub use statusbar::{KeyHints, PROMPT_TTL, Prompt, Reply, StatusBar, Toast, pill};
+pub use syntax::{Lang, Syntax, Token};
 pub use table::{Column, ColumnTable, Sort, TableRow, Width};
 pub use tabs::{TabBar, tab_step};
 pub use terminal::{

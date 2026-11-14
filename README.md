@@ -41,6 +41,11 @@ Not a framework: there is no app trait and no run loop. Each app keeps its own e
     - ratatui drops control characters silently: an escape sequence loses its ESC and leaves its tail as if it were text. Here a C0 control is `^[`, DEL `^?`, and a C1 control, a bidirectional control (Trojan Source), a line separator or an invisible character (zero-width space and joiners, soft hyphen, BOM, the fillers, the tag characters) `<U+202E>`, each in a style of its own
     - tabs run to the next stop in display columns (every 4th unless set), a line's closing `\r` is dropped
     - `lines(text, styles)`: the text's lines, styled by byte ranges in order as a lexer gives its tokens, a glyph a glyph whatever token it is in; `line` for a path or a name, `plain` for a string (borrowed when nothing in it needed showing)
+- **Lang / Syntax / Token**: source text in colours, the lexer `Visible::lines` is styled by; from the file viewers of two apps, which each had half of it
+    - `Lang::of(path)` by the extension, `lang.tokens(text)`: byte ranges in order with what each is (`Syntax`), from a `&str` or from bytes that may not be UTF-8; what lies between them is plain. Never fails: an unclosed comment or string runs to the end
+    - PHP as PHP reads it: the HTML outside its tags passed through; comments, strings with the variables they interpolate, heredoc and nowdoc, backticks (a shell command, in a colour of its own), variables, keywords, casts, constants, numbers, a name called as a function, and what follows `__halt_compiler();` as never run
+    - CSS: comments, strings, at-rules. JavaScript: comments and strings, a regular expression stepped over. Perl: comments, POD, strings, what follows `__END__`
+    - `Syntax::style()`: the colour of each kind; `Token::styles(&tokens)` hands them to `Visible`. An app with a lexer of its own (a scanner showing what it saw) answers in the same `Token`s, with kinds for markup, white space and punctuation, and `Syntax::php_word` for a name's keyword or constant
 - **LineEditor**: a single-line text editor for prompts
     - ← → Home End, Ctrl-← / Ctrl-→ (or Alt-) by word, Backspace / Delete, Ctrl-Backspace / Ctrl-Delete a word
     - readline: Ctrl-A / E / B / F / H, Alt-B / F by word; kills Ctrl-U / K / W, Alt-D, Alt-Backspace, and Ctrl-Y puts the last one back
