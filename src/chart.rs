@@ -26,8 +26,7 @@ use ratatui::style::{Color, Style};
 use ratatui::symbols::Marker;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Axis, Block, Chart, Dataset, GraphType, Widget};
-
-use crate::logview::{SECS_PER_DAY, SECS_PER_HOUR, SECS_PER_MIN};
+use timesince::DurationFormat;
 
 /* ===== consts and statics ================================================= */
 
@@ -44,6 +43,8 @@ static SI_STEPS: [(f64, &str); 4] = [(1e12, "T"), (1e9, "G"), (1e6, "M"), (1e3, 
 /// Below this a label keeps one decimal.
 const ONE_DECIMAL_BELOW: f64 = 10.0;
 static NOW: &str = "now";
+/// The default x label: two units, neither padded, a zero at the end left out.
+const SPAN_LABEL: DurationFormat = DurationFormat::COMPACT.pad(false).trim(true);
 
 /// Braille dots filled bottom-up: the left column, then the right.
 const BRAILLE_LEFT: [u32; 4] = [0x40, 0x04, 0x02, 0x01];
@@ -448,22 +449,7 @@ fn si_label(v: f64) -> String {
 
 /// `45s`, `5m`, `1m30s`, `2h`, `1d6h`: the default x label, to the second.
 fn span_label(d: Duration) -> String {
-    let s = d.as_secs();
-    let two = |big: u64, a: &str, small: u64, b: &str| match small {
-        0 => format!("{big}{a}"),
-        _ => format!("{big}{a}{small}{b}"),
-    };
-    match s {
-        0..SECS_PER_MIN => format!("{s}s"),
-        SECS_PER_MIN..SECS_PER_HOUR => two(s / SECS_PER_MIN, "m", s % SECS_PER_MIN, "s"),
-        SECS_PER_HOUR..SECS_PER_DAY => two(
-            s / SECS_PER_HOUR,
-            "h",
-            s % SECS_PER_HOUR / SECS_PER_MIN,
-            "m",
-        ),
-        _ => two(s / SECS_PER_DAY, "d", s % SECS_PER_DAY / SECS_PER_HOUR, "h"),
-    }
+    SPAN_LABEL.format(d)
 }
 
 /* ===== tests ============================================================== */

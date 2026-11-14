@@ -41,7 +41,8 @@ and no run loop; each app keeps its own event loop and draws its own views.
 - [`LogBuffer`], [`LogView`], [`LogScroll`]: a log pane: a bounded ring of
   messages any thread pushes to (echoed to the shell while the TUI isn't
   up), its tail following new lines; `LogSink` feeds it from the `log`
-  crate (feature `log`).
+  crate (feature `log`). The times in UTC or at an offset, in a layout of
+  the app's if it has one ([`Stamp`], [`timesince`]'s `DateFormat`).
 - [`StatusBar`], [`KeyHints`], [`Toast`], [`Prompt`]: the bottom line: a
   status either side, the key legend fitted between them hint by hint, a
   one-shot message, and an inline y/N question that lapses unanswered.
@@ -67,6 +68,10 @@ and no run loop; each app keeps its own event loop and draws its own views.
   tool where the app runs.
 - [`render_buffer`], [`buffer_rows`], [`buffer_text`]: a rendered buffer
   read back as text, for tests.
+
+Dates, times of day and durations are written by [`timesince`], which is
+re-exported: its `DateFormat`, `UtcOffset` and `DurationFormat` are there
+for the app's own without another dependency.
 */
 
 mod breadcrumb;
@@ -119,6 +124,8 @@ pub use terminal::{
 };
 pub use testing::{buffer_rows, buffer_text, render_buffer};
 pub use text::{Cut, ellipsize_end, ellipsize_start, fit_line, range_label, wrap_lines};
+/// The crate minitui writes dates, times and durations with, for an app's own.
+pub use timesince;
 pub use visible::Visible;
 
 /**

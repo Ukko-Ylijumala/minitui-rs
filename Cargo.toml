@@ -16,6 +16,9 @@ rust-version = "1.88"
 [features]
 # LogSink: a `log` crate backend feeding a LogBuffer
 log = ["dep:log"]
+# the system's time zone for a log's times: timesince's UtcOffset::local_at and
+# CivilTime::now_local (libc's localtime_r; Unix only)
+local = ["timesince/local"]
 
 [dependencies]
 signal-hook = "0.3"
@@ -28,3 +31,10 @@ log = { version = "0.4", optional = true, features = ["std"] }
 ratatui = { version = "0.30", default-features = false, features = ["crossterm_0_29", "unstable-rendered-line-info"] }
 unicode-segmentation = "1.12"
 unicode-width = "0.2"
+
+# the times of a LogView and the spans of a TimeChart: DateFormat, UtcOffset and
+# DurationFormat. Without its serde feature it has no dependencies of its own
+[dependencies.timesince]
+git = "https://github.com/Ukko-Ylijumala/timesince-rs"
+version = "0.3.5"
+default-features = false

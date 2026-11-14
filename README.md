@@ -74,7 +74,7 @@ Not a framework: there is no app trait and no run loop. Each app keeps its own e
 - **CanvasView**: a whole layout drawn on an off-screen buffer as tall as it needs, the rows in view copied into the frame, so panels of charts and tables scroll by line however small the terminal
 - **LogBuffer / LogView**: a log pane
     - `LogBuffer`: the last N messages, each with its time and level (critical … trace, syslog's plus trace), pushed from any thread (`log.warn(..)`, `log.push(level, ..)`); optionally echoed to the shell (stdout or stderr) while the TUI isn't up, so setup messages stay visible
-    - `LogView`: the newest messages, one line each, `time LEVEL: message` styled by level (or the app's own `format`), the time in UTC as date + time, time only or none; only the lines in view are formatted
+    - `LogView`: the newest messages, one line each, `time LEVEL: message` styled by level (or the app's own `format`), the time as date + time, time only, none or a `DateFormat` of the app's (`Stamp::Layout`), in UTC or at an `offset` (`UtcOffset`; the system's time zone with the `local` feature); only the lines in view are formatted
     - `LogScroll`: follows the newest line until moved up, then stays on the lines it shows while new ones arrive and old ones drop out; End (or ↓ back to the bottom) follows again; `lines a–b of N` in the border while scrolled up
     - `LogSink` (feature `log`): a `log` crate backend feeding a `LogBuffer`
 - **StatusBar**: the bottom line
@@ -127,7 +127,9 @@ version = "0.1"
 
 Releases are tagged `vX.Y.Z`; use `tag = "v0.1.9"` instead of `version` to pin one exactly.
 
-Features: `log` adds `LogSink`, a backend for the `log` crate (`features = ["log"]`).
+Features: `log` adds `LogSink`, a backend for the `log` crate (`features = ["log"]`); `local` turns on [timesince](https://github.com/Ukko-Ylijumala/timesince-rs)'s feature of that name, the system's time zone for a log's times (`UtcOffset::local()`, Unix).
+
+The times and durations minitui writes are timesince's, which is re-exported as `minitui::timesince`: `DateFormat` and `UtcOffset` for a `LogView`, `DurationFormat` for an app's own uptimes and ETAs, without a second line in `Cargo.toml`.
 
 minitui's API uses ratatui and crossterm types (`Terminal`, `KeyboardEnhancementFlags`), so the app must depend on the same versions: ratatui 0.30 and crossterm 0.29.
 

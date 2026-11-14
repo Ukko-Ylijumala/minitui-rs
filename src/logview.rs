@@ -24,7 +24,7 @@ use std::ops::Range;
 #[cfg(feature = "log")]
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
 
 use crossterm::event::{KeyEvent, KeyModifiers};
 #[cfg(feature = "log")]
@@ -34,6 +34,7 @@ use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph, StatefulWidget, Widget};
+use timesince::{CivilTime, DateFormat, UtcOffset};
 
 use crate::scroll::Chrome;
 use crate::terminal::lock;
@@ -41,9 +42,6 @@ use crate::{NavOutcome, Scroll, tui_active};
 
 /* ===== consts, statics and macros ========================================= */
 
-pub(crate) const SECS_PER_DAY: u64 = 86_400;
-pub(crate) const SECS_PER_HOUR: u64 = 3_600;
-pub(crate) const SECS_PER_MIN: u64 = 60;
 /// How std's panic report goes on after `thread 'name' `.
 static PANICKED_AT: &str = "panicked at";
 
@@ -121,7 +119,10 @@ pub enum Echo {
     Stderr,
 }
 
-/// How a [`LogView`] shows a message's time, in UTC.
+/**
+How a [`LogView`] shows a message's time: in UTC, unless the view is given
+an offset ([`LogView::offset`]).
+*/
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Stamp {
     None,
@@ -130,6 +131,9 @@ pub enum Stamp {
     /// `2026-11-06 12:34:56`: unambiguous over a run of several days.
     #[default]
     DateTime,
+    /// A layout of the app's own: `DateFormat::TIME.fraction(3)` for
+    /// `12:34:56.789`, `DateFormat::RFC3339` for a time with its offset.
+    Layout(DateFormat),
 }
 
 /**
@@ -199,6 +203,7 @@ frame.render_stateful_widget(view, frame.area(), scroll);
 pub struct LogView<'a> {
     log: &'a LogBuffer,
     stamp: Stamp,
+    offset: UtcOffset,
     levels: bool,
     format: Option<&'a dyn Fn(&LogEntry) -> Line<'static>>,
     chrome: Chrome<'a>,
@@ -330,8 +335,13 @@ impl LogEntry {
     /// `time LEVEL: message`: the time dim, the message in its level's style;
     /// without the `LEVEL: ` unless `levels`.
     pub fn line(&self, stamp: Stamp, levels: bool) -> Line<'static> {
+        self.line_at(stamp, levels, UtcOffset::UTC)
+    }
+
+    /// [`line`](Self::line) with the time as a clock at `offset` reads it.
+    pub fn line_at(&self, stamp: Stamp, levels: bool, offset: UtcOffset) -> Line<'static> {
         let mut spans = Vec::with_capacity(3);
-        if let Some(time) = stamp.format(self.when) {
+        if let Some(time) = stamp.format_at(self.when, offset) {
             spans.push(Span::styled(format!("{time} "), Style::new().dim()));
         }
         if levels {
@@ -355,40 +365,19 @@ impl fmt::Display for LogEntry {
 impl Stamp {
     /// `when` in this form, in UTC; `None` for [`Stamp::None`].
     pub fn format(self, when: SystemTime) -> Option<String> {
-        let secs = when.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
-        let (h, m, s) = (
-            secs % SECS_PER_DAY / SECS_PER_HOUR,
-            secs % SECS_PER_HOUR / SECS_PER_MIN,
-            secs % SECS_PER_MIN,
-        );
-        match self {
-            Self::None => None,
-            Self::Time => Some(format!("{h:02}:{m:02}:{s:02}")),
-            Self::DateTime => {
-                let (year, month, day) = civil_from_days(secs / SECS_PER_DAY);
-                Some(format!(
-                    "{year:04}-{month:02}-{day:02} {h:02}:{m:02}:{s:02}"
-                ))
-            }
-        }
+        self.format_at(when, UtcOffset::UTC)
     }
-}
 
-/**
-Days since the Unix epoch to a (year, month, day) in the proleptic Gregorian
-calendar: Howard Hinnant's `civil_from_days` (from flood), for days on or
-after the epoch. Exact, and no date crate for one timestamp format.
-*/
-fn civil_from_days(days: u64) -> (u64, u64, u64) {
-    let z = days + 719_468;
-    let era = z / 146_097;
-    let doe = z - era * 146_097; // [0, 146096]
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365; // [0, 399]
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
-    let mp = (5 * doy + 2) / 153; // [0, 11], from March
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    (yoe + era * 400 + u64::from(month <= 2), month, day)
+    /// `when` in this form, as a clock at `offset` reads it; `None` for [`Stamp::None`].
+    pub fn format_at(self, when: SystemTime, offset: UtcOffset) -> Option<String> {
+        let layout = match self {
+            Self::None => return None,
+            Self::Time => DateFormat::TIME,
+            Self::DateTime => DateFormat::DATE_TIME,
+            Self::Layout(layout) => layout,
+        };
+        Some(layout.format(CivilTime::from(when).to_offset(offset)))
+    }
 }
 
 /* ===== LogBuffer ========================================================== */
@@ -567,6 +556,7 @@ impl<'a> LogView<'a> {
         Self {
             log,
             stamp: Stamp::default(),
+            offset: UtcOffset::UTC,
             levels: true,
             format: None,
             chrome: Chrome::default(),
@@ -576,6 +566,18 @@ impl<'a> LogView<'a> {
     /// How the time shows ([`Stamp::DateTime`] by default).
     pub fn stamp(mut self, stamp: Stamp) -> Self {
         self.stamp = stamp;
+        self
+    }
+
+    /**
+    The clock the times are read from: UTC by default, `UtcOffset::east(2, 0)`
+    for one two hours east of it. With the `local` feature
+    `UtcOffset::local()` is the system's time zone as it is now; an offset
+    is fixed, so an app that runs over a change of daylight saving asks
+    again when it draws.
+    */
+    pub fn offset(mut self, offset: UtcOffset) -> Self {
+        self.offset = offset;
         self
     }
 
@@ -619,6 +621,7 @@ impl StatefulWidget for LogView<'_> {
         let Self {
             log,
             stamp,
+            offset,
             levels,
             format,
             mut chrome,
@@ -631,7 +634,7 @@ impl StatefulWidget for LogView<'_> {
             let shown = state.window(first, len, inner.height.into());
             ring.entries
                 .range(shown)
-                .map(|e| format.map_or_else(|| e.line(stamp, levels), |f| f(e)))
+                .map(|e| format.map_or_else(|| e.line_at(stamp, levels, offset), |f| f(e)))
                 .collect()
         };
         if state.follow {
@@ -682,7 +685,7 @@ impl Log for LogSink {
 mod tests {
     use super::*;
     use crossterm::event::KeyCode;
-    use std::time::Duration;
+    use std::time::{Duration, UNIX_EPOCH};
 
     use crate::buffer_rows;
 
@@ -763,7 +766,7 @@ mod tests {
             Some("1970-01-01 00:00:00")
         );
         // 2000-02-29 (a leap day) 13:14:15
-        let leap = 11_016 * SECS_PER_DAY + 13 * SECS_PER_HOUR + 14 * SECS_PER_MIN + 15;
+        let leap = 11_016 * 86_400 + 13 * 3_600 + 14 * 60 + 15;
         assert_eq!(
             Stamp::DateTime.format(at(leap)).as_deref(),
             Some("2000-02-29 13:14:15")
@@ -773,11 +776,32 @@ mod tests {
     }
 
     #[test]
-    fn civil_days() {
-        assert_eq!(civil_from_days(0), (1970, 1, 1));
-        assert_eq!(civil_from_days(19_723), (2024, 1, 1));
-        assert_eq!(civil_from_days(20_818), (2026, 12, 31));
-        assert_eq!(civil_from_days(20_819), (2027, 1, 1));
+    fn stamps_at_an_offset_and_in_a_layout_of_the_app_s() {
+        // 2000-02-29 23:30:15.250 UTC: the next day, half an hour in, two hours east
+        let when = at(11_016 * 86_400 + 23 * 3_600 + 30 * 60 + 15) + Duration::from_millis(250);
+        let east = UtcOffset::east(2, 0);
+        assert_eq!(
+            Stamp::DateTime.format_at(when, east).as_deref(),
+            Some("2000-03-01 01:30:15")
+        );
+        assert_eq!(Stamp::Time.format_at(when, UtcOffset::west(3, 30)).as_deref(), Some("20:00:15"));
+        assert_eq!(
+            Stamp::Layout(DateFormat::TIME.fraction(3)).format(when).as_deref(),
+            Some("23:30:15.250")
+        );
+        assert_eq!(
+            Stamp::Layout(DateFormat::RFC3339).format_at(when, east).as_deref(),
+            Some("2000-03-01T01:30:15+02:00")
+        );
+        assert_eq!(Stamp::None.format_at(when, east), None);
+
+        let entry = LogEntry {
+            when,
+            level: LogLevel::Info,
+            msg: "up".into(),
+        };
+        assert_eq!(entry.line_at(Stamp::Time, false, east).to_string(), "01:30:15 up");
+        assert_eq!(entry.line(Stamp::Time, false).to_string(), "23:30:15 up");
     }
 
     #[test]
