@@ -38,6 +38,9 @@ and no run loop; each app keeps its own event loop and draws its own views.
   scrolled by line with the last page kept full: text, or a whole layout
   drawn on an off-screen buffer. Text can also scroll sideways and number
   its lines.
+- [`TextSearch`]: a search in such a text, as `less` has it: typed as a
+  [`Filter`], every match marked and the current one apart, `n` / `N`
+  stepping through them and bringing each into view.
 - [`LogBuffer`], [`LogView`], [`LogScroll`]: a log pane: a bounded ring of
   messages any thread pushes to (echoed to the shell while the TUI isn't
   up), its tail following new lines; `LogSink` feeds it from the `log`
@@ -68,8 +71,8 @@ and no run loop; each app keeps its own event loop and draws its own views.
 - [`copy_to_clipboard`], [`osc52`]: a text onto the clipboard of the
   machine the terminal runs on, by OSC 52: through SSH, with no clipboard
   tool where the app runs.
-- [`render_buffer`], [`buffer_rows`], [`buffer_text`]: a rendered buffer
-  read back as text, for tests.
+- [`render_buffer`], [`render_stateful_buffer`], [`buffer_rows`],
+  [`buffer_text`]: a rendered buffer read back as text, for tests.
 
 Dates, times of day and durations are written by [`timesince`], which is
 re-exported: its `DateFormat`, `UtcOffset` and `DurationFormat` are there
@@ -91,6 +94,7 @@ mod list;
 mod logview;
 mod popup;
 mod scroll;
+mod search;
 mod signals;
 mod statusbar;
 mod table;
@@ -118,6 +122,7 @@ pub use logview::LogSink;
 pub use logview::{Echo, LogBuffer, LogEntry, LogLevel, LogScroll, LogView, Stamp};
 pub use popup::HelpPopup;
 pub use scroll::{CanvasView, Scroll, TextView};
+pub use search::TextSearch;
 pub use signals::{Signal, SignalBuilder, SignalHandler};
 pub use statusbar::{KeyHints, PROMPT_TTL, Prompt, Reply, StatusBar, Toast, pill};
 pub use table::{Column, ColumnTable, Sort, TableRow, Width};
@@ -126,7 +131,7 @@ pub use terminal::{
     GuardBuilder, HeldPanic, PanicPolicy, TerminalGuard, Tui, eprintln_safe, held_panics,
     restore_terminal, take_held_panics, tui_active,
 };
-pub use testing::{buffer_rows, buffer_text, render_buffer};
+pub use testing::{buffer_rows, buffer_text, render_buffer, render_stateful_buffer};
 pub use text::{Cut, ellipsize_end, ellipsize_start, fit_line, range_label, wrap_lines};
 /// The crate minitui writes dates, times and durations with, for an app's own.
 pub use timesince;

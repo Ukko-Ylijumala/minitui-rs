@@ -71,6 +71,11 @@ Not a framework: there is no app trait and no run loop. Each app keeps its own e
 - **TextView**: text in a `Scroll`ed view, optionally word-wrapped (scrolling by wrapped rows); only the lines in view are handed to the renderer; `lines a–b of N` in the bottom border when it overflows
     - `sideways(true)`: lines wider than the view scroll sideways instead of being cut, by display columns (a wide character cut in two shows as spaces), with no limit on a line's length; the border adds `cols a–b of N`
     - `line_numbers(true)`: the lines numbered in a dim gutter that stays put sideways; a wrapped line is numbered on its first row
+- **TextSearch**: a search in the text of such a view, as `less` has it
+    - the text typed in a `Filter` (`/`, Enter keeps it, Esc drops it), searched again on every key; case-blind in ASCII until a capital is typed; found in the lines as shown, across their spans, up to a cap (10,000) so one letter in a megabyte returns
+    - `step(1)` / `step(-1)` for `n` / `N`, around the end; the current match brought into the view's `Scroll`: sideways by its columns, or by its row in a wrapped line
+    - `marked(&lines)`: the lines for the `TextView` with every match in one style and the current one in another, over the text's own; spans borrowed, only the lines with a match cut up
+    - `bar()`: the `FilterBar` with `3 of 17`; the text stays the app's, handed in where it is needed
 - **CanvasView**: a whole layout drawn on an off-screen buffer as tall as it needs, the rows in view copied into the frame, so panels of charts and tables scroll by line however small the terminal
 - **LogBuffer / LogView**: a log pane
     - `LogBuffer`: the last N messages, each with its time and level (critical … trace, syslog's plus trace), pushed from any thread (`log.warn(..)`, `log.push(level, ..)`); optionally echoed to the shell (stdout or stderr) while the TUI isn't up, so setup messages stay visible
@@ -115,7 +120,7 @@ Not a framework: there is no app trait and no run loop. Each app keeps its own e
     - it works where the app has no display and no clipboard tool, through SSH: the clipboard is the one of the machine the terminal runs on
     - where the terminal allows it: most do as they come, iTerm2 and xterm by a setting, tmux with `set -g set-clipboard on`; a terminal that will not ignores it, and none answers, so the app can say it asked
     - at most `OSC52_MAX_BYTES` (74 991) of text, the longest sequence xterm takes; `osc52` gives the sequence itself
-- **Testing**: `render_buffer` draws a widget on a buffer of a given size; `buffer_rows` / `buffer_text` read a buffer (that one, or a `TestBackend`'s) back as text, skipping the cell a wide character hides so a row reads the way it shows
+- **Testing**: `render_buffer` draws a widget on a buffer of a given size; `render_stateful_buffer` a stateful one, leaving its state as the draw left it; `buffer_rows` / `buffer_text` read a buffer (that one, or a `TestBackend`'s) back as text, skipping the cell a wide character hides so a row reads the way it shows
 - Popup titles are given bare (`"keys"`, `"destroy"`) and shown padded with a space on either side
 
 ## Installation

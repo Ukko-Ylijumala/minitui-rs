@@ -21,7 +21,7 @@ With a `Terminal<TestBackend>`: `buffer_text(term.backend().buffer())`.
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::widgets::Widget;
+use ratatui::widgets::{StatefulWidget, Widget};
 use unicode_width::UnicodeWidthStr;
 
 /* ===== code =============================================================== */
@@ -30,6 +30,19 @@ use unicode_width::UnicodeWidthStr;
 pub fn render_buffer(widget: impl Widget, width: u16, height: u16) -> Buffer {
     let mut buf = Buffer::empty(Rect::new(0, 0, width, height));
     widget.render(buf.area, &mut buf);
+    buf
+}
+
+/// A stateful `widget` rendered on an empty `width` × `height` buffer, its
+/// `state` left as the draw left it: a view's scroll, by the page it drew.
+pub fn render_stateful_buffer<W: StatefulWidget>(
+    widget: W,
+    width: u16,
+    height: u16,
+    state: &mut W::State,
+) -> Buffer {
+    let mut buf = Buffer::empty(Rect::new(0, 0, width, height));
+    widget.render(buf.area, &mut buf, state);
     buf
 }
 
