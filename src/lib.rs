@@ -66,6 +66,9 @@ and no run loop; each app keeps its own event loop and draws its own views.
 - [`Filter`], [`FilterBar`]: a list's filter typed as you go, Enter to
   keep it and Esc to drop it, the list's keys passed through; [`hbar`]:
   a horizontal bar in eighth blocks.
+- [`FilterTerm`], [`Cmp`], [`contains_folded`]: what such a filter's text
+  asks, word by word: `p:akismet<5.0` read into a scope, a text and a
+  bound, which the app gives their meaning; and a word found in any case.
 - [`Gauge`], [`Levels`]: a share of a whole on one line: a label, the bar,
   the percentage and a text, coloured by a warning level and a bad one.
 - [`centered_rect`], [`Split`], [`Breadcrumb`]: a popup's place, two panes
@@ -103,6 +106,7 @@ mod statusbar;
 mod syntax;
 mod table;
 mod tabs;
+mod term;
 mod terminal;
 mod testing;
 mod text;
@@ -132,6 +136,7 @@ pub use statusbar::{KeyHints, PROMPT_TTL, Prompt, Reply, StatusBar, Toast, pill}
 pub use syntax::{Lang, Syntax, Token};
 pub use table::{Column, ColumnTable, Sort, TableRow, Width};
 pub use tabs::{TabBar, tab_step};
+pub use term::{Cmp, FilterTerm, contains_folded};
 pub use terminal::{
     GuardBuilder, HeldPanic, PanicPolicy, TerminalGuard, Tui, eprintln_safe, held_panics,
     restore_terminal, take_held_panics, tui_active,

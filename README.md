@@ -106,6 +106,12 @@ Not a framework: there is no app trait and no run loop. Each app keeps its own e
 - **Filter / FilterBar**: a list's filter typed as you go
     - `Filter`: the text in a `LineEditor`, and whether it is being typed; `start` on the app's key (`/`), Enter keeps the filter (`Done`), Esc drops it (`Cleared`), an edit is `Changed`; keys that aren't editing keys (↑ ↓ PgUp PgDn) come back `Ignored`, so the list moves while the filter is typed; `set` gives it a text the app chose (a jump from another view to the rows one value has), as if typed and kept. What the text matches stays with the app
     - `FilterBar`: `filter > text` in one row (the cursor cell while typing), `shown of total` on the right where the whole text leaves room; nothing for a filter neither typed nor set
+- **FilterTerm / Cmp**: what such a filter's text asks, word by word; from the filters of two apps, which read the same shape each with its own fields
+    - `FilterTerm::read("p:akismet<5.0")`: the scope before the first `:`, the text looked for, and a comparison (`<`, `<=`, `>`, `>=`, `=`) with what it is against; each part optional, nothing copied. `FilterTerm::words(text)` for a filter whose every word must hold
+    - what a scope names and what a bound is a bound of (a version, a level) stay with the app. A word that is none of its scopes is read again with the colon in its text (`unscoped`); one whose value has signs in it is there as it stands (`value`), and as it was typed (`word`)
+    - `whole()`: the value after an `=` that begins it, `r:=wso-shell` for the whole of a field; `is_open()`: a scope or a comparison with nothing after it yet, for a list that should not empty between two keys
+    - `Cmp::holds(ordering)` / `admits(&value, &bound)`: whether the bound is met; `Cmp::strip` reads a sign off the start of a text
+    - `contains_folded(text, word)`: a lowercase word found in a text in any case, without a copy of the text for an ASCII word: the plain word of a filter asked of every row
 - **hbar**: `value` of `max` as a horizontal bar in eighth blocks (`██▋`), a value above zero always at least `▏`: a distribution's rows
 - **Gauge / Levels**: a share of a whole on one line, `ring      ▕██████▋     ▏  57.3%  1.2 G of 2.1 G`
     - `Gauge`: a label in a column of its own, the bar, the percentage and a text; the bar takes what the row leaves (or a set width), in eighths between `▕ ▏`, or in whole cells over a track (`[████░░░░]`); a share that isn't known keeps its place as an empty bar and a `–`
