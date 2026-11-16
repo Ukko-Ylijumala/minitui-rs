@@ -46,6 +46,12 @@ Not a framework: there is no app trait and no run loop. Each app keeps its own e
     - PHP as PHP reads it: the HTML outside its tags passed through; comments, strings with the variables they interpolate, heredoc and nowdoc, backticks (a shell command, in a colour of its own), variables, keywords, casts, constants, numbers, a name called as a function, and what follows `__halt_compiler();` as never run
     - CSS: comments, strings, at-rules. JavaScript: comments and strings, a regular expression stepped over. Perl: comments, POD, strings, what follows `__END__`
     - `Syntax::style()`: the colour of each kind; `Token::styles(&tokens)` hands them to `Visible`. An app with a lexer of its own (a scanner showing what it saw) answers in the same `Token`s, with kinds for markup, white space and punctuation, and `Syntax::php_word` for a name's keyword or constant
+- **FileRead / FileContent / FileText**: a file read for such a viewer, once the app has opened it; from the file viewers of two apps, which each had the cap, the probe and the read
+    - `FileRead::new().read_file(&file)`: a regular file only, asked of the descriptor and so of what was opened, whatever opened it: a FIFO swapped in for a file never holds a key and a device is never read. `NotRegular` names what was there (`a FIFO, not a regular file`), also for an app wording its own refusal from an `lstat`. The metadata of the opened file comes back with what was read
+    - at most a cap of it (1 MiB unless set); whether there was more is asked of the read, by one byte past the cap, not of a size taken earlier
+    - a NUL among the first bytes (8 KiB unless set) makes it binary: named by its magic (`ZIP archive`, `PNG image`, `ELF executable`, else `binary data`) and not shown
+    - `FileText`: the bytes and whether they were cut; `utf8()` when all of it is, `lossy()` with `U+FFFD` for what is not, `latin1()` a character a byte. A character the cap fell inside is left out, not shown as a replacement character the file does not have
+    - the open stays the app's: which names it may be asked for, and how one is reached without following a link the file's owner put there, depend on where its paths come from
 - **LineEditor**: a single-line text editor for prompts
     - ← → Home End, Ctrl-← / Ctrl-→ (or Alt-) by word, Backspace / Delete, Ctrl-Backspace / Ctrl-Delete a word
     - readline: Ctrl-A / E / B / F / H, Alt-B / F by word; kills Ctrl-U / K / W, Alt-D, Alt-Backspace, and Ctrl-Y puts the last one back

@@ -29,6 +29,9 @@ and no run loop; each app keeps its own event loop and draws its own views.
 - [`Lang`], [`Syntax`], [`Token`]: such a lexer: PHP (and the HTML around
   it), CSS, JavaScript and Perl read into byte ranges with what they are,
   and the colour of each kind; for the reader's eye, never failing.
+- [`FileRead`], [`FileContent`], [`FileText`], [`NotRegular`]: a file an
+  app has opened, read for such a view: a regular file only, at most a cap
+  of it, a binary one named and not shown, the text as UTF-8 where it is.
 - [`LineEditor`]: a single-line text editor with readline keys, scrolling
   by display width, optional masking.
 - [`InputDialog`], [`ConfirmDialog`], [`confirm_answer`]: modal prompts
@@ -92,6 +95,7 @@ mod clipboard;
 mod dialog;
 mod editor;
 mod events;
+mod file;
 mod filter;
 mod form;
 mod gauge;
@@ -120,6 +124,7 @@ pub use editor::{EditOutcome, EditorStyle, LineEditor};
 pub use events::{
     DrawErrors, DrawReport, Input, Waker, is_ctrl_c, next_event, next_key,
 };
+pub use file::{FileContent, FileRead, FileText, NotRegular};
 pub use filter::{Filter, FilterBar, FilterOutcome};
 pub use form::{Field, Focus, Form, FormAction};
 pub use gauge::{Gauge, Levels};
