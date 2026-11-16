@@ -150,7 +150,7 @@ git = "https://github.com/Ukko-Ylijumala/minitui-rs"
 version = "0.1"
 ```
 
-Releases are tagged `vX.Y.Z`; use `tag = "v0.1.11"` instead of `version` to pin one exactly.
+Releases are tagged `vX.Y.Z`; use `tag = "v0.1.12"` instead of `version` to pin one exactly.
 
 Features: `log` adds `LogSink`, a backend for the `log` crate (`features = ["log"]`); `local` turns on [timesince](https://github.com/Ukko-Ylijumala/timesince-rs)'s feature of that name, the system's time zone for a log's times (`UtcOffset::local()`, Unix).
 
@@ -281,6 +281,9 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## Version History
 
+- 0.1.12: A filter's words, and a file read for a viewer
+    - `FilterTerm`, `Cmp`, `contains_folded`: a filter's word read into the scope it names, the text looked for and a comparison with what it is against (`p:akismet<5.0`, `r:=wso-shell`, `s>=4`), from the filters of two apps; what a scope and a bound mean stays with the app
+    - `FileRead`, `FileContent`, `FileText`, `NotRegular`: a file the app has opened, read for a viewer: a regular file only (asked of the descriptor), at most a cap of it, a binary one named by its magic and not shown, the text as UTF-8 where it is; from the file viewers of the same two apps. The open stays the app's
 - 0.1.11: Source text in colours
     - `Lang`, `Syntax`, `Token`: lexers for PHP (with the HTML around it), CSS, JavaScript and Perl, from the file viewers of two apps, which each had half; one set of kinds and one table of colours, also for an app with a lexer of its own. `strum` becomes a direct dependency (it was ratatui's already)
 - 0.1.10: Times by timesince, a gauge and a text search
