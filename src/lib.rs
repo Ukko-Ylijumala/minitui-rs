@@ -66,6 +66,10 @@ and no run loop; each app keeps its own event loop and draws its own views.
   columns fit the width, the least important left out when narrow, cells
   cut with an `…`, the sort column marked; [`TabBar`]: a row of tabs that
   becomes `‹ tab ›` when narrow; [`fit_line`]: a styled line cut to fit.
+- [`GridTable`], [`GridState`]: a table that states its own width
+  instead: columns as wide as their content has ever been and never
+  narrower again, the layout around it taking the rest; a row and a column
+  selected, a scrollbar over its border, the rows formatted beforehand.
 - [`Filter`], [`FilterBar`]: a list's filter typed as you go, Enter to
   keep it and Esc to drop it, the list's keys passed through; [`hbar`]:
   a horizontal bar in eighth blocks.
@@ -99,6 +103,7 @@ mod file;
 mod filter;
 mod form;
 mod gauge;
+mod grid;
 mod layout;
 mod list;
 mod logview;
@@ -128,6 +133,7 @@ pub use file::{FileContent, FileRead, FileText, NotRegular};
 pub use filter::{Filter, FilterBar, FilterOutcome};
 pub use form::{Field, Focus, Form, FormAction};
 pub use gauge::{Gauge, Levels};
+pub use grid::{GridState, GridTable};
 pub use layout::{Split, centered_rect};
 pub use list::{ListCursor, Nav, NavOutcome};
 #[cfg(feature = "log")]

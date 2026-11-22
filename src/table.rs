@@ -18,9 +18,14 @@ a [`ListCursor`]. Merged from the apps' tables:
 - the sort keys differed (`+`/`-`, `s`, `v`, `r`, ⇧↑↓), so they stay with
   the app: [`Sort`] only steps, reverses and compares;
 - nft-browser measured its key column in bytes, which wide text overflows.
+
+The widths a column needs, which ones fit, and the drawing of the header
+and the rows ([`Lanes`]) are shared with [`GridTable`](crate::GridTable),
+the table that states its own width.
 */
 
 use std::cmp::Ordering;
+use std::mem;
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Alignment, Rect};
@@ -40,7 +45,7 @@ static DESCENDING: &str = "▼";
 const SORT_MARK_W: usize = 2;
 static DEFAULT_INDICATOR: &str = "rows";
 const DEFAULT_GAP: u16 = 1;
-const HEADER_ROWS: u16 = 1;
+pub(crate) const HEADER_ROWS: u16 = 1;
 
 /* ===== types ============================================================== */
 
@@ -64,7 +69,7 @@ never dropped.
 #[derive(Debug, Clone)]
 pub struct Column<'a> {
     title: &'a str,
-    width: Width,
+    pub(crate) width: Width,
     priority: u8,
     alignment: Alignment,
     cut: Cut,
@@ -150,6 +155,25 @@ pub struct ColumnTable<'a, F> {
     note_style: Style,
 }
 
+/**
+Where a table's columns are in the area inside its block: each one's
+width, `None` for one left out. Draws the header and the rows there, for
+[`ColumnTable`] and [`GridTable`](crate::GridTable) alike.
+*/
+pub(crate) struct Lanes<'a> {
+    inner: Rect,
+    columns: &'a [Column<'a>],
+    widths: Vec<Option<u16>>,
+    gap: u16,
+}
+
+/* ===== Width ============================================================== */
+
+impl Width {
+    /// As wide as its header and its content, whatever that takes.
+    pub const CONTENT: Self = Self::Fit { min: 0, max: u16::MAX };
+}
+
 /* ===== Column ============================================================= */
 
 impl<'a> Column<'a> {
@@ -205,7 +229,7 @@ impl<'a> Column<'a> {
     }
 
     /// The columns the header needs: the title, and the sort marker's room.
-    fn header_width(&self) -> usize {
+    pub(crate) fn header_width(&self) -> usize {
         self.title.width() + if self.sortable { SORT_MARK_W } else { 0 }
     }
 }
@@ -304,6 +328,11 @@ impl<'a> TableRow<'a> {
         self.style = style.into();
         self
     }
+
+    /// The row's lines, a column each; none for a heading.
+    pub fn cells(&self) -> &[Line<'a>] {
+        &self.cells
+    }
 }
 
 /* ===== ColumnTable ======================================================== */
@@ -366,36 +395,50 @@ impl<'a, F: Fn(usize) -> TableRow<'a>> ColumnTable<'a, F> {
     }
 }
 
-/**
-Each column's width in `width` cells, `None` for one left out, given the
-rows in view: the narrowest each may be, columns dropped by priority
-until those fit, then what is left shared by the fill columns.
-*/
-fn layout(columns: &[Column], rows: &[TableRow], width: u16, gap: u16) -> Vec<Option<u16>> {
-    let content = |i: usize| {
-        rows.iter()
-            .filter_map(|r| r.cells.get(i))
-            .map(Line::width)
-            .max()
-            .unwrap_or(0)
-    };
-    let need: Vec<u16> = columns
+/// The widest cell of each of `n` columns among `rows`, in display columns.
+pub(crate) fn content_widths(rows: &[TableRow], n: usize) -> Vec<usize> {
+    let mut widest: Vec<usize> = vec![0; n];
+    for row in rows {
+        for (w, cell) in widest.iter_mut().zip(&row.cells) {
+            *w = (*w).max(cell.width());
+        }
+    }
+    widest
+}
+
+/// The narrowest each column may be, `content` being its widest cell.
+pub(crate) fn needs(columns: &[Column], content: &[usize]) -> Vec<u16> {
+    columns
         .iter()
         .enumerate()
         .map(|(i, c)| match c.width {
             Width::Fixed(n) => n,
             Width::Fit { min, max } => {
-                let want = content(i).max(c.header_width());
+                let want = content.get(i).copied().unwrap_or(0).max(c.header_width());
                 u16::try_from(want).unwrap_or(u16::MAX).clamp(min, max.max(min))
             }
             Width::Fill { min } => min,
         })
-        .collect();
+        .collect()
+}
+
+/// The cells `need` takes side by side, `gap` between two columns.
+pub(crate) fn total_width(need: impl IntoIterator<Item = u16>, gap: u16) -> u32 {
+    let (n, cells) = need
+        .into_iter()
+        .fold((0u32, 0u32), |(n, cells), w| (n + 1, cells + u32::from(w)));
+    cells + u32::from(gap) * n.saturating_sub(1)
+}
+
+/**
+Each column's width in `width` cells, `None` for one left out, `need`
+being the narrowest each may be: columns dropped by priority until those
+fit, then what is left shared by the fill columns.
+*/
+fn fit(columns: &[Column], need: &[u16], width: u16, gap: u16) -> Vec<Option<u16>> {
     let mut kept: Vec<bool> = vec![true; columns.len()];
     let total = |kept: &[bool]| -> u32 {
-        let n = kept.iter().filter(|&&k| k).count() as u32;
-        let cells: u32 = need.iter().zip(kept).filter(|(_, k)| **k).map(|(&w, _)| u32::from(w)).sum();
-        cells + u32::from(gap) * n.saturating_sub(1)
+        total_width(need.iter().zip(kept).filter(|(_, k)| **k).map(|(&w, _)| w), gap)
     };
     while total(&kept) > u32::from(width) && kept.iter().filter(|&&k| k).count() > 1 {
         // the lowest priority, the rightmost among equals
@@ -427,6 +470,24 @@ fn layout(columns: &[Column], rows: &[TableRow], width: u16, gap: u16) -> Vec<Op
     widths
 }
 
+/**
+`block` with the bottom border's notes: `label` (the rows shown, when
+they aren't all) on the right, the columns left out on the left.
+*/
+pub(crate) fn with_notes<'a>(mut block: Block<'a>, label: Option<String>, hidden: usize, style: Style) -> Block<'a> {
+    if let Some(label) = label {
+        block = block.title_bottom(Line::from(format!(" {label} ")).style(style).right_aligned());
+    }
+    if hidden > 0 {
+        let note = match hidden {
+            1 => " 1 column hidden ".to_string(),
+            n => format!(" {n} columns hidden "),
+        };
+        block = block.title_bottom(Line::from(note).style(style).left_aligned());
+    }
+    block
+}
+
 /// A line in `width` cells at `x`, `y`: cut to fit, aligned in the cells.
 fn put(buf: &mut Buffer, x: u16, y: u16, width: u16, line: Line, cut: Cut, alignment: Alignment) {
     let fitted = fit_line(line, width.into(), cut);
@@ -439,42 +500,48 @@ fn put(buf: &mut Buffer, x: u16, y: u16, width: u16, line: Line, cut: Cut, align
     buf.set_line(x + offset, y, &fitted, w);
 }
 
-impl<'a, F: Fn(usize) -> TableRow<'a>> StatefulWidget for ColumnTable<'a, F> {
-    type State = ListCursor;
+/* ===== Lanes ============================================================== */
 
-    fn render(self, area: Rect, buf: &mut Buffer, cursor: &mut ListCursor) {
-        let inner = self.block.as_ref().map_or(area, |b| b.inner(area));
-        let body = inner.height.saturating_sub(HEADER_ROWS);
-        let shown = cursor.window(self.len, body.into());
-        let rows: Vec<TableRow> = shown.clone().map(&self.row).collect();
-        let widths: Vec<Option<u16>> = layout(self.columns, &rows, inner.width, self.gap);
-
-        if let Some(mut block) = self.block {
-            if let Some(what) = self.indicator
-                && self.len > usize::from(body)
-            {
-                let label = range_label(what, shown.clone(), self.len);
-                block = block.title_bottom(Line::from(format!(" {label} ")).style(self.note_style).right_aligned());
-            }
-            let hidden = widths.iter().filter(|w| w.is_none()).count();
-            if hidden > 0 {
-                let note = match hidden {
-                    1 => " 1 column hidden ".to_string(),
-                    n => format!(" {n} columns hidden "),
-                };
-                block = block.title_bottom(Line::from(note).style(self.note_style).left_aligned());
-            }
-            block.render(area, buf);
+impl<'a> Lanes<'a> {
+    /// The columns placed in `inner`, `need` being the narrowest each may be.
+    pub(crate) fn new(columns: &'a [Column<'a>], need: &[u16], inner: Rect, gap: u16) -> Self {
+        Self {
+            inner,
+            columns,
+            widths: fit(columns, need, inner.width, gap),
+            gap,
         }
-        if inner.is_empty() {
-            return;
-        }
+    }
 
-        // the header, the sort column marked
-        let mut x = inner.x;
-        for (i, (column, width)) in self.columns.iter().zip(&widths).enumerate() {
-            let Some(width) = *width else { continue };
-            let sorted = self.sort.filter(|s| s.column == i);
+    /// How many columns were left out.
+    pub(crate) fn hidden(&self) -> usize {
+        self.widths.iter().filter(|w| w.is_none()).count()
+    }
+
+    /// The columns kept: each one's index, itself, its `x` and its width.
+    fn kept(&self) -> impl Iterator<Item = (usize, &'a Column<'a>, u16, u16)> + '_ {
+        let mut x = self.inner.x;
+        self.columns
+            .iter()
+            .zip(&self.widths)
+            .enumerate()
+            .filter_map(move |(i, (column, width))| {
+                let width = (*width)?;
+                let at = x;
+                x = x.saturating_add(width + self.gap);
+                Some((i, column, at, width))
+            })
+    }
+
+    /// Where column `index` is: its `x` and its width; `None` when it was left out.
+    pub(crate) fn span(&self, index: usize) -> Option<(u16, u16)> {
+        self.kept().find(|(i, ..)| *i == index).map(|(_, _, x, width)| (x, width))
+    }
+
+    /// The header on the first line, the `sort` column marked.
+    pub(crate) fn header(&self, buf: &mut Buffer, sort: Option<Sort>, style: Style) {
+        for (i, column, x, width) in self.kept() {
+            let sorted = sort.filter(|s| s.column == i);
             let mut spans = vec![Span::raw(column.title)];
             if let Some(sort) = sorted {
                 spans.push(Span::raw(format!(" {}", sort.marker())));
@@ -488,12 +555,20 @@ impl<'a, F: Fn(usize) -> TableRow<'a>> StatefulWidget for ColumnTable<'a, F> {
                 }
                 _ => Line::from(spans),
             };
-            put(buf, x, inner.y, width, line.style(self.header_style), Cut::End, column.alignment);
-            x = x.saturating_add(width + self.gap);
+            put(buf, x, self.inner.y, width, line.style(style), Cut::End, column.alignment);
         }
+    }
 
-        // the rows
-        let selected: Option<usize> = cursor.selected_in_window();
+    /// `rows` from under the header down, as many as there are lines for;
+    /// the one at `selected` among them highlighted.
+    pub(crate) fn rows<'r>(
+        &self,
+        buf: &mut Buffer,
+        rows: impl IntoIterator<Item = TableRow<'r>>,
+        selected: Option<usize>,
+        highlight: Style,
+    ) {
+        let inner = self.inner;
         for (k, row) in rows.into_iter().enumerate() {
             let y = inner.y + HEADER_ROWS + k as u16;
             if y >= inner.bottom() {
@@ -504,20 +579,43 @@ impl<'a, F: Fn(usize) -> TableRow<'a>> StatefulWidget for ColumnTable<'a, F> {
             match row.heading {
                 Some(line) => put(buf, inner.x, y, inner.width, line, Cut::End, Alignment::Left),
                 None => {
-                    let mut x = inner.x;
-                    let mut cells = row.cells.into_iter();
-                    for (column, width) in self.columns.iter().zip(&widths) {
-                        let cell: Line = cells.next().unwrap_or_default();
-                        let Some(width) = *width else { continue };
+                    let mut cells = row.cells;
+                    for (i, column, x, width) in self.kept() {
+                        let cell: Line = cells.get_mut(i).map(mem::take).unwrap_or_default();
                         put(buf, x, y, width, cell, column.cut, column.alignment);
-                        x = x.saturating_add(width + self.gap);
                     }
                 }
             }
             if selected == Some(k) {
-                buf.set_style(line_area, self.highlight_style);
+                buf.set_style(line_area, highlight);
             }
         }
+    }
+}
+
+impl<'a, F: Fn(usize) -> TableRow<'a>> StatefulWidget for ColumnTable<'a, F> {
+    type State = ListCursor;
+
+    fn render(self, area: Rect, buf: &mut Buffer, cursor: &mut ListCursor) {
+        let inner = self.block.as_ref().map_or(area, |b| b.inner(area));
+        let body = inner.height.saturating_sub(HEADER_ROWS);
+        let shown = cursor.window(self.len, body.into());
+        let rows: Vec<TableRow> = shown.clone().map(&self.row).collect();
+        let need: Vec<u16> = needs(self.columns, &content_widths(&rows, self.columns.len()));
+        let lanes = Lanes::new(self.columns, &need, inner, self.gap);
+
+        if let Some(block) = self.block {
+            let label = self
+                .indicator
+                .filter(|_| self.len > usize::from(body))
+                .map(|what| range_label(what, shown.clone(), self.len));
+            with_notes(block, label, lanes.hidden(), self.note_style).render(area, buf);
+        }
+        if inner.is_empty() {
+            return;
+        }
+        lanes.header(buf, self.sort, self.header_style);
+        lanes.rows(buf, rows, cursor.selected_in_window(), self.highlight_style);
     }
 }
 
