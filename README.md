@@ -157,7 +157,7 @@ git = "https://github.com/Ukko-Ylijumala/minitui-rs"
 version = "0.1"
 ```
 
-Releases are tagged `vX.Y.Z`; use `tag = "v0.1.13"` instead of `version` to pin one exactly.
+Releases are tagged `vX.Y.Z`; use `tag = "v0.1.14"` instead of `version` to pin one exactly.
 
 Features: `log` adds `LogSink`, a backend for the `log` crate (`features = ["log"]`); `local` turns on [timesince](https://github.com/Ukko-Ylijumala/timesince-rs)'s feature of that name, the system's time zone for a log's times (`UtcOffset::local()`, Unix).
 
@@ -288,6 +288,8 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## Version History
 
+- 0.1.14: Headings above the selection scroll into view
+    - `ListCursor::window_selectable`: `window` for a list with rows that can't be selected (separators, headings): those directly above the selection come into view with it. With the offset kept across frames nothing else scrolled them back, as nft-browser's port showed
 - 0.1.13: A table that states its own width
     - `GridTable`, `GridState`, from mping-rs's target table: columns as wide as their content has ever been and never narrower again, `measure` before the layout so the panes beside it take the rest; a row and a column selected, a scrollbar over the border, the rows formatted beforehand (all, or `windowed` those in view). Too wide for its area it gives way as a `ColumnTable` does, by the same code
     - `Width::CONTENT`, a fit column without bounds; `TableRow::cells`
