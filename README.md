@@ -73,7 +73,7 @@ Not a framework: there is no app trait and no run loop. Each app keeps its own e
 - **ListCursor**: the selection and scroll offset of a list or table, kept across frames
     - `window(len, rows)` before rendering: clamps the selection, scrolls just enough to show it (the last page always full), returns the rows to format; `selected_in_window`, or `list_state` / `table_state` to render the whole list
     - `nav(len).key(key)`: ↑ ↓ Home End, PgUp / PgDn by the rows of the last draw less one; modifier chords are left to the app; `Moved` / `Handled` / `Ignored`
-    - `nav(len).wrap()` wraps single steps around; `nav(len).selectable(|i| ..)` skips separators and headings
+    - `nav(len).wrap()` wraps single steps around; `nav(len).selectable(|i| ..)` skips separators and headings, and `window_selectable(len, rows, |i| ..)` brings those directly above the selection into view with it
     - `clamp(len)` after a delete; `reselect(found, len)` keeps the selection on its item across a refresh or a re-sort, and says when the item is gone
 - **Scroll**: the offset of a view taller than its area, kept across frames
     - `window(len, rows)` before rendering: clamps the offset so the last page is full, returns the lines to show; `label(what)` for the title when it overflows

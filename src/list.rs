@@ -13,6 +13,10 @@ its own, each with part of it right:
 - squawk and mping-rs kept the selection on the same item across a refresh
   or a re-sort; mping-rs and wiremeup clamped it after a delete;
 - nft-browser skipped its separator rows; wiremeup wrapped around.
+
+Its port brought out what skipping costs once the offset is kept: the
+separator a list begins with is never selected, so nothing scrolled it
+back into view ([`ListCursor::window_selectable`]).
 */
 
 use std::iter;
@@ -38,7 +42,9 @@ Per frame, [`ListCursor::window`] clamps the selection to the list, scrolls
 just enough to keep it in view (the last page always full) and returns the
 rows to show, before anything is rendered: the app formats only those rows,
 or renders the whole list with [`ListCursor::list_state`] /
-[`ListCursor::table_state`]. Keys go through [`ListCursor::nav`].
+[`ListCursor::table_state`]. Keys go through [`ListCursor::nav`]. A list
+with rows that can't be selected takes [`ListCursor::window_selectable`]
+and [`Nav::selectable`].
 
 ```no_run
 # use ratatui::Frame;
@@ -193,6 +199,31 @@ impl ListCursor {
     the page. Call it before formatting the rows, every frame.
     */
     pub fn window(&mut self, len: usize, rows: usize) -> Range<usize> {
+        self.window_selectable(len, rows, any_row)
+    }
+
+    /**
+    [`ListCursor::window`] for a list with rows that can't be selected
+    (separators, headings; the same test as [`Nav::selectable`]'s): those
+    directly above the selection come into view with it, as many as fit
+    with the selection still in view below them. The selection never lands
+    on them, so without this nothing scrolls them back: the heading a list
+    begins with stays out of view once the list has been scrolled.
+
+    ```no_run
+    # use minitui::ListCursor;
+    # struct Row { separator: bool }
+    # fn demo(cursor: &mut ListCursor, rows: &[Row], height: usize) {
+    let shown = cursor.window_selectable(rows.len(), height, |i| !rows[i].separator);
+    # }
+    ```
+    */
+    pub fn window_selectable(
+        &mut self,
+        len: usize,
+        rows: usize,
+        selectable: impl Fn(usize) -> bool,
+    ) -> Range<usize> {
         self.rows = rows;
         self.clamp(len);
         let rows = rows.max(1);
@@ -201,6 +232,12 @@ impl ListCursor {
                 self.offset = sel;
             } else if sel >= self.offset + rows {
                 self.offset = sel + 1 - rows;
+            }
+            // the first of the unselectable rows directly above, or as far
+            // up as leaves the selection on the last row shown
+            let heading = (0..sel).rev().take_while(|&i| !selectable(i)).last();
+            if let Some(top) = heading {
+                self.offset = self.offset.min(top.max((sel + 1).saturating_sub(rows)));
             }
         }
         self.offset = self.offset.min(len.saturating_sub(rows));
@@ -247,7 +284,8 @@ impl<'a, F: Fn(usize) -> bool> Nav<'a, F> {
     Only rows for which `selectable` is true can be selected (separators,
     headings can't): a move lands on the next selectable row its way, or
     the nearest one back when there is none. A list with none at all
-    leaves the selection alone.
+    leaves the selection alone. Draw such a list through
+    [`ListCursor::window_selectable`], so the headings scroll into view.
     */
     pub fn selectable<G: Fn(usize) -> bool>(self, selectable: G) -> Nav<'a, G> {
         Nav {
@@ -539,6 +577,39 @@ mod tests {
         assert_eq!(c.window(0, 10), 0..0);
         assert_eq!(c.selected(), None);
         assert_eq!(ListCursor::new().window(5, 0), 0..1, "0 rows still shows one");
+    }
+
+    #[test]
+    fn headings_above_the_selection_come_into_view() {
+        // nft-browser's levels: a separator first, another further down
+        let row = |i: usize| ![0, 20, 21].contains(&i);
+        let mut c = at(39);
+        assert_eq!(c.window_selectable(40, 8, row), 32..40);
+        // Home lands on row 1: plain `window` leaves the separator above it out
+        c.nav(40).selectable(row).first();
+        assert_eq!(c.selected(), Some(1));
+        let mut plain = c;
+        assert_eq!(plain.window(40, 8), 1..9);
+        assert_eq!(c.window_selectable(40, 8, row), 0..8);
+        assert_eq!(c.selected_in_window(), Some(1), "the selection is as it was");
+
+        // down to the edge: the selection is what must show, the headings are in view anyway
+        c.select(Some(22));
+        assert_eq!(c.window_selectable(40, 8, row), 15..23);
+        // from below, the selection arrives on the top row: both headings with it
+        c.select(Some(39));
+        c.window_selectable(40, 8, row);
+        c.select(Some(22));
+        assert_eq!(c.window_selectable(40, 8, row), 20..28);
+        assert_eq!(c.selected_in_window(), Some(2));
+
+        // more headings than fit: those nearest the selection, which stays in view
+        assert_eq!(c.window_selectable(40, 2, row), 21..23);
+        assert_eq!(c.window_selectable(40, 1, row), 22..23);
+        // nothing selectable above at all, and nothing selected
+        assert_eq!(at(3).window_selectable(10, 5, |_| false), 0..5);
+        assert_eq!(ListCursor::new().window_selectable(10, 5, |_| false), 0..5);
+        assert_eq!(c.window_selectable(0, 5, row), 0..0);
     }
 
     #[test]
